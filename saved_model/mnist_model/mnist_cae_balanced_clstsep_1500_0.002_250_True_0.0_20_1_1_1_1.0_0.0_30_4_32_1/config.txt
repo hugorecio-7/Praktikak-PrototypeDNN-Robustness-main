@@ -1,0 +1,19 @@
+Model Configuration:
+Model Type: balanced
+Training Loss Function: clstsep
+Epochs: 1500
+Learning Rate: 0.002
+Batch Size: 250
+Freeze Weights Layer fc: True
+Weights Layer fc Value: 0.0
+Lambda Class Hyperparameter: 20
+Lambda Encoder Hyperparameter: 1
+Lambda 1 Hyperparameter: 1
+Lambda 2 Hyperparameter: 1
+Lambda Clustering Hyperparameter: 1.0
+Lambda Separation Hyperparameter: 0.0
+Number of Prototypes by Class: 3
+Number of Prototypes: 30
+Number of Layers Encoder/Decoder: 4
+Number of Maps Encoder/Decoder: 32
+Random Seed: 1

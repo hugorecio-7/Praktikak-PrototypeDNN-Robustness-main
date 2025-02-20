@@ -1,0 +1,102 @@
+################################################################################
+Epoch: 0001
+training set errors:	classification error: 0.068019	autoencoder error: 0.047249	error_1: 0.223372	clst loss: 0.232613	sep loss: -1.625908	total error: 1.863621	accuracy: 0.978396	adv accuracy: 0.029229
+training takes 147.65 seconds.
+validation set errors:	classification error: 0.075568	autoencoder error: 0.044541	error_1: 0.194946	clst loss: 0.233120	sep loss: -1.688545	total error: 1.983965	accuracy: 0.976500	adv accuracy 0.070667
+################################################################################
+Epoch: 0002
+training set errors:	classification error: 0.099540	autoencoder error: 0.045529	error_1: 0.188085	clst loss: 0.291712	sep loss: -1.710402	total error: 2.516132	accuracy: 0.982396	adv accuracy: 0.129813
+training takes 143.79 seconds.
+validation set errors:	classification error: 0.081517	autoencoder error: 0.046744	error_1: 0.194683	clst loss: 0.280133	sep loss: -1.704077	total error: 2.151903	accuracy: 0.970750	adv accuracy 0.249083
+################################################################################
+Epoch: 0003
+training set errors:	classification error: 0.096571	autoencoder error: 0.044469	error_1: 0.233317	clst loss: 0.384338	sep loss: -1.882563	total error: 2.593538	accuracy: 0.972625	adv accuracy: 0.426667
+training takes 145.97 seconds.
+validation set errors:	classification error: 0.103131	autoencoder error: 0.042433	error_1: 0.213593	clst loss: 0.378549	sep loss: -1.952954	total error: 2.697188	accuracy: 0.969167	adv accuracy 0.567500
+################################################################################
+Epoch: 0004
+training set errors:	classification error: 0.102776	autoencoder error: 0.041901	error_1: 0.198198	clst loss: 0.390576	sep loss: -1.892032	total error: 2.686192	accuracy: 0.974667	adv accuracy: 0.649479
+training takes 146.34 seconds.
+validation set errors:	classification error: 0.072762	autoencoder error: 0.042911	error_1: 0.204521	clst loss: 0.357924	sep loss: -1.859245	total error: 2.060593	accuracy: 0.969834	adv accuracy 0.722333
+################################################################################
+Epoch: 0005
+training set errors:	classification error: 0.074302	autoencoder error: 0.044681	error_1: 0.197708	clst loss: 0.361119	sep loss: -2.018928	total error: 2.089547	accuracy: 0.976604	adv accuracy: 0.755958
+training takes 146.27 seconds.
+validation set errors:	classification error: 0.099075	autoencoder error: 0.042214	error_1: 0.217368	clst loss: 0.366363	sep loss: -1.994026	total error: 2.607446	accuracy: 0.972667	adv accuracy 0.803500
+################################################################################
+Epoch: 0006
+training set errors:	classification error: 0.073652	autoencoder error: 0.041864	error_1: 0.171449	clst loss: 0.357497	sep loss: -1.919987	total error: 2.043850	accuracy: 0.978479	adv accuracy: 0.812438
+training takes 146.05 seconds.
+validation set errors:	classification error: 0.100159	autoencoder error: 0.040923	error_1: 0.169809	clst loss: 0.368619	sep loss: -2.032254	total error: 2.582528	accuracy: 0.975083	adv accuracy 0.829083
+################################################################################
+Epoch: 0007
+training set errors:	classification error: 0.062571	autoencoder error: 0.040772	error_1: 0.161522	clst loss: 0.348877	sep loss: -2.015209	total error: 1.802585	accuracy: 0.979958	adv accuracy: 0.849688
+training takes 145.72 seconds.
+validation set errors:	classification error: 0.087917	autoencoder error: 0.040353	error_1: 0.153946	clst loss: 0.331660	sep loss: -2.014194	total error: 2.284310	accuracy: 0.974417	adv accuracy 0.860167
+################################################################################
+Epoch: 0008
+training set errors:	classification error: 0.044740	autoencoder error: 0.040414	error_1: 0.142455	clst loss: 0.278244	sep loss: -1.980182	total error: 1.355909	accuracy: 0.981958	adv accuracy: 0.862979
+training takes 146.83 seconds.
+validation set errors:	classification error: 0.084467	autoencoder error: 0.040253	error_1: 0.133267	clst loss: 0.309076	sep loss: -1.848549	total error: 2.171939	accuracy: 0.975917	adv accuracy 0.876250
+################################################################################
+Epoch: 0009
+training set errors:	classification error: 0.083633	autoencoder error: 0.041594	error_1: 0.124038	clst loss: 0.281053	sep loss: -2.070118	total error: 2.119339	accuracy: 0.982542	adv accuracy: 0.875354
+training takes 148.73 seconds.
+validation set errors:	classification error: 0.101492	autoencoder error: 0.037602	error_1: 0.133052	clst loss: 0.320023	sep loss: -2.205306	total error: 2.520515	accuracy: 0.976667	adv accuracy 0.855417
+################################################################################
+Epoch: 0010
+training set errors:	classification error: 0.055643	autoencoder error: 0.039954	error_1: 0.120756	clst loss: 0.277739	sep loss: -1.981524	total error: 1.551318	accuracy: 0.983417	adv accuracy: 0.881458
+training takes 148.43 seconds.
+validation set errors:	classification error: 0.078355	autoencoder error: 0.040248	error_1: 0.117972	clst loss: 0.266379	sep loss: -1.961509	total error: 1.991705	accuracy: 0.978000	adv accuracy 0.876417
+################################################################################
+Epoch: 0011
+training set errors:	classification error: 0.046726	autoencoder error: 0.041715	error_1: 0.106088	clst loss: 0.250170	sep loss: -1.926033	total error: 1.332492	accuracy: 0.984375	adv accuracy: 0.884188
+training takes 146.78 seconds.
+validation set errors:	classification error: 0.119963	autoencoder error: 0.039762	error_1: 0.113022	clst loss: 0.283283	sep loss: -1.945999	total error: 2.835334	accuracy: 0.977000	adv accuracy 0.880250
+################################################################################
+Epoch: 0012
+training set errors:	classification error: 0.056931	autoencoder error: 0.041141	error_1: 0.111522	clst loss: 0.242612	sep loss: -1.875946	total error: 1.533893	accuracy: 0.984146	adv accuracy: 0.887313
+training takes 147.02 seconds.
+validation set errors:	classification error: 0.077525	autoencoder error: 0.042561	error_1: 0.109395	clst loss: 0.252755	sep loss: -1.832129	total error: 1.955218	accuracy: 0.976417	adv accuracy 0.887917
+################################################################################
+Epoch: 0013
+training set errors:	classification error: 0.059926	autoencoder error: 0.041599	error_1: 0.099800	clst loss: 0.226110	sep loss: -2.101874	total error: 1.566025	accuracy: 0.985771	adv accuracy: 0.888063
+training takes 147.57 seconds.
+validation set errors:	classification error: 0.053651	autoencoder error: 0.042748	error_1: 0.095829	clst loss: 0.257550	sep loss: -2.043955	total error: 1.469144	accuracy: 0.979083	adv accuracy 0.882750
+################################################################################
+Epoch: 0014
+training set errors:	classification error: 0.050769	autoencoder error: 0.040865	error_1: 0.088258	clst loss: 0.237528	sep loss: -2.114272	total error: 1.382029	accuracy: 0.986500	adv accuracy: 0.893292
+training takes 146.06 seconds.
+validation set errors:	classification error: 0.051034	autoencoder error: 0.041550	error_1: 0.093013	clst loss: 0.254143	sep loss: -2.179864	total error: 1.409385	accuracy: 0.979417	adv accuracy 0.882500
+################################################################################
+Epoch: 0015
+training set errors:	classification error: 0.030653	autoencoder error: 0.043061	error_1: 0.094567	clst loss: 0.255987	sep loss: -2.142849	total error: 1.006672	accuracy: 0.987167	adv accuracy: 0.896479
+training takes 147.40 seconds.
+validation set errors:	classification error: 0.079516	autoencoder error: 0.041896	error_1: 0.104630	clst loss: 0.286572	sep loss: -2.093767	total error: 2.023423	accuracy: 0.978917	adv accuracy 0.865833
+################################################################################
+Epoch: 0016
+training set errors:	classification error: 0.038580	autoencoder error: 0.041324	error_1: 0.079563	clst loss: 0.233464	sep loss: -2.125492	total error: 1.125953	accuracy: 0.987584	adv accuracy: 0.895292
+training takes 146.92 seconds.
+validation set errors:	classification error: 0.037202	autoencoder error: 0.042515	error_1: 0.088857	clst loss: 0.224198	sep loss: -2.201640	total error: 1.099612	accuracy: 0.979833	adv accuracy 0.887083
+################################################################################
+Epoch: 0017
+training set errors:	classification error: 0.028787	autoencoder error: 0.042086	error_1: 0.084630	clst loss: 0.239911	sep loss: -2.124534	total error: 0.942359	accuracy: 0.987833	adv accuracy: 0.898438
+training takes 146.53 seconds.
+validation set errors:	classification error: 0.073161	autoencoder error: 0.041294	error_1: 0.088998	clst loss: 0.228977	sep loss: -2.115490	total error: 1.822491	accuracy: 0.979000	adv accuracy 0.885417
+################################################################################
+Epoch: 0018
+training set errors:	classification error: 0.051062	autoencoder error: 0.040274	error_1: 0.086205	clst loss: 0.220045	sep loss: -2.057112	total error: 1.367761	accuracy: 0.987771	adv accuracy: 0.899396
+training takes 147.00 seconds.
+validation set errors:	classification error: 0.048774	autoencoder error: 0.041276	error_1: 0.080957	clst loss: 0.201148	sep loss: -2.084111	total error: 1.298863	accuracy: 0.979833	adv accuracy 0.899583
+################################################################################
+Epoch: 0019
+training set errors:	classification error: 0.035933	autoencoder error: 0.043525	error_1: 0.075220	clst loss: 0.203677	sep loss: -1.995874	total error: 1.041089	accuracy: 0.988958	adv accuracy: 0.900063
+training takes 147.13 seconds.
+validation set errors:	classification error: 0.083749	autoencoder error: 0.042265	error_1: 0.087358	clst loss: 0.233994	sep loss: -2.040960	total error: 2.038603	accuracy: 0.979750	adv accuracy 0.889583
+################################################################################
+Epoch: 0020
+training set errors:	classification error: 0.027112	autoencoder error: 0.040993	error_1: 0.091091	clst loss: 0.254981	sep loss: -2.282043	total error: 0.929296	accuracy: 0.988730	adv accuracy: 0.898604
+training takes 119.63 seconds.
+validation set errors:	classification error: 0.064290	autoencoder error: 0.042281	error_1: 0.092016	clst loss: 0.255637	sep loss: -2.340576	total error: 1.675730	accuracy: 0.981083	adv accuracy 0.867750
+Total taken time 3369.48 seconds.
+Optimization Finished!

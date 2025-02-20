@@ -1,0 +1,19 @@
+Finetune Configuration:
+Model: saved_model\mnist_model\mnist_cae_balanced_clstsep_1500_0.002_250_True_0.0_20_1_1_1_1.0_0.0_30_4_32_1\mnist_cae00750.pth
+Freeze: nothing
+Training Loss Function: clstsep
+Adversarial Attack: pdglinf
+Adversarial Loss Function: ce
+Adversarial Iterations: 20
+Adversarial Epsilon: 0.3
+Adversarial Alpha: 0.02
+Epochs: 20
+Learning Rate: 0.002
+Batch Size: 250
+Lambda Class Hyperparameter: 20
+Lambda Encoder Hyperparameter: 1
+Lambda 1 Hyperparameter: 1
+Lambda 2 Hyperparameter: 1
+Lambda Clustering Hyperparameter: 1.0
+Lambda Separation Hyperparameter: 0.0
+Random Seed: 1
