@@ -132,3 +132,43 @@ def PGDL2_attack(batch_x, loss_f, iters, eps, alpha, random_start):
             
     return perturbed_batch_x
 
+import eagerpy as ep
+import foolbox as fb
+
+def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
+    """
+    Aplica el ataque LinfDeepFool de Foolbox a un batch de imágenes.
+
+    Args:
+        batch_x (torch.Tensor): Batch de imágenes de entrada.
+        model (torch.nn.Module): Modelo de PyTorch a atacar.
+        steps (int): Número máximo de iteraciones del ataque.
+        candidates (int): Número de clases más probables a considerar.
+        overshoot (float): Cuánto sobrepasar el límite de decisión.
+
+    Returns:
+        torch.Tensor: Imágenes adversariales perturbadas.
+    """
+    device = batch_x.device
+    model = model.to(device).eval()
+
+    # Ensure requires_grad is set to True
+    batch_x = batch_x.clone().detach().requires_grad_(True)
+    
+    # Convert the PyTorch model to Foolbox
+    fmodel = fb.PyTorchModel(model, bounds=(0, 1))
+
+    # Create the attack
+    attack = fb.attacks.LinfDeepFoolAttack(steps=steps)
+
+    # Convert inputs to Foolbox format (EagerPy)
+    x_foolbox = ep.astensor(batch_x)
+    y_foolbox = ep.astensor(batch_y)
+    
+    try:
+        raw, clipped, is_adv = attack(fmodel, x_foolbox, y_foolbox, epsilons=epsilon)
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        return batch_x  # Fallback to original input
+    
+    return  clipped.tensor

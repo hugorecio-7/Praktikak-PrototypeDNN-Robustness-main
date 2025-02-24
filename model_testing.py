@@ -6,6 +6,7 @@ from modules import Softmax
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from sklearn.decomposition import PCA
+import foolbox as fb
 
 softmax = Softmax()
 
@@ -301,7 +302,7 @@ def run_tests(model, test_loader, attack, loss_generator, num_runs=5):
     
     return (test_ac_mean, test_ac_std), (test_ac_adv_mean, test_ac_adv_std), (metric_percentage_mean, metric_percentage_std)
 
-def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss, max_eps, step=0.025):
+def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss, max_eps, step=0.025, foolbox_use=False):
     """
     Plots the accuracy of models under adversarial attacks for different epsilon values.
 
@@ -329,7 +330,7 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
         for idm, model in enumerate(models):
             pred_y = model.forward(batch_x)
             pred_y = softmax(pred_y)
-
+            
             loss_f = partial(loss, model=model, batch_y=batch_y)
 
             # Non-adversarial test set accuracy
@@ -346,8 +347,12 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
                 eps = epss / 1000 if not isinstance(max_eps, int) else epss
                 
                 # Generate adversarial examples from batch_x for the corresponding epsilon
-                adv_attack = partial(attack, loss_f=loss_f, eps=eps)
-                perturbed_batch_x = adv_attack(batch_x)
+                
+                if foolbox_use:
+                    perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)
+                else:
+                    adv_attack = partial(attack, loss_f=loss_f, eps=eps)
+                    perturbed_batch_x = adv_attack(batch_x)
 
                 # Get the predictions for the adversarial examples
                 pred_y_adv = model.forward(perturbed_batch_x)
