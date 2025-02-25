@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from sklearn.decomposition import PCA
 import foolbox as fb
+import eagerpy as ep
 
 softmax = Softmax()
 
@@ -350,6 +351,8 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
                 
                 if foolbox_use:
                     perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)
+                    # Convert EagerPy tensor to PyTorch tensor
+                    perturbed_batch_x = ep.astensor(perturbed_batch_x).raw
                 else:
                     adv_attack = partial(attack, loss_f=loss_f, eps=eps)
                     perturbed_batch_x = adv_attack(batch_x)

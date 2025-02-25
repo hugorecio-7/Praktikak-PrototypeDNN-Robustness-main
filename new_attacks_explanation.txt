@@ -1,0 +1,14 @@
+1.-Compute Gradients & Decision Boundaries
+
+At each step, compute the logits (raw model outputs) for the current adversarial example.
+Identify the top predicted class (correct class) and the next closest decision boundary.
+
+2.-Estimate the Minimal Perturbation
+
+Compute the gradient of the loss function for both the current class and the closest incorrect class.
+Compute a small perturbation that moves the input across the decision boundary.
+
+3.-Iterative Refinement
+
+Repeat the process until misclassification occurs or the maximum number of steps is reached.
+Scale the perturbation by overshoot (to ensure misclassification).

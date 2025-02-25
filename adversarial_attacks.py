@@ -137,20 +137,21 @@ import foolbox as fb
 
 def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
     """
-    Aplica el ataque LinfDeepFool de Foolbox a un batch de imágenes.
+    Applies the LinfDeepFool attack from Foolbox to a batch of images.
 
     Args:
-        batch_x (torch.Tensor): Batch de imágenes de entrada.
-        model (torch.nn.Module): Modelo de PyTorch a atacar.
-        steps (int): Número máximo de iteraciones del ataque.
-        candidates (int): Número de clases más probables a considerar.
-        overshoot (float): Cuánto sobrepasar el límite de decisión.
+        batch_x (torch.Tensor): Batch of input images.
+        model (torch.nn.Module): PyTorch model to attack.
+        batch_y (torch.Tensor): True labels of the input batch.
+        steps (int): Maximum number of iterations for the attack.
+        epsilon (float): The epsilon value to scale the perturbations.
 
     Returns:
-        torch.Tensor: Imágenes adversariales perturbadas.
+        torch.Tensor: Perturbed images.
     """
-    device = batch_x.device
-    model = model.to(device).eval()
+    # Do not have GPU
+    # device = batch_x.device
+    # model = model.to(device).eval()
 
     # Ensure requires_grad is set to True
     batch_x = batch_x.clone().detach().requires_grad_(True)
@@ -171,4 +172,146 @@ def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
         print(f"Attack failed: {e}")
         return batch_x  # Fallback to original input
     
-    return  clipped.tensor
+    return  clipped
+
+def LinfAdditiveUniformNoise_attack(batch_x, batch_y, model, epsilon=0.3):
+    """
+    Applies the LinfAdditiveUniformNoise attack from Foolbox to a batch of images.
+
+    Args:
+        batch_x (torch.Tensor): Batch of input images.
+        model (torch.nn.Module): PyTorch model to attack.
+        batch_y (torch.Tensor): True labels of the input batch.
+        epsilon (float): The epsilon value to scale the perturbations.
+
+    Returns:
+        PyTorchTensor: Perturbed images.
+    """
+    # Do not have GPU
+    # device = batch_x.device
+    # model = model.to(device).eval()
+    
+    model.eval()  # Set the model to evaluation mode
+    
+    # Convert the PyTorch model to Foolbox
+    fmodel = fb.PyTorchModel(model, bounds=(0, 1))
+
+    # Define attack
+    attack = fb.attacks.LinfAdditiveUniformNoiseAttack()
+    
+    # Convert inputs to Foolbox format (EagerPy)
+    x_foolbox = ep.astensor(batch_x)
+    y_foolbox = ep.astensor(batch_y)
+
+    # Run attack
+    try:
+        raw, clipped, is_adv = attack(fmodel, x_foolbox, y_foolbox, epsilons=epsilon)
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        return batch_x  # Fallback to original input
+    
+    return  clipped
+
+def LinfFMN_attack(batch_x, batch_y, model, loss, steps=50, epsilon=0.3, alpha=0.01):
+    """
+    Applies the LinfFMN attack from Foolbox to a batch of images.
+
+    Args:
+        batch_x (torch.Tensor): Batch of input images.
+        model (torch.nn.Module): PyTorch model to attack.
+        batch_y (torch.Tensor): True labels of the input batch.
+        steps (int): Maximum number of iterations for the attack.
+        epsilon (float): The epsilon value to scale the perturbations.
+
+    Returns:
+        torch.Tensor: Perturbed images.
+    """
+    # Do not have GPU
+    # device = batch_x.device
+    # model = model.to(device).eval()
+
+    # Ensure the model is in evaluation mode
+    model.eval()
+
+    # Set requires_grad attribute of tensor to True
+    batch_x.requires_grad = True
+
+    # Generate initial perturbation
+    perturbed_images = batch_x.clone()
+
+    for _ in range(steps):
+        # Forward pass
+        outputs = model(perturbed_images)
+        
+        # Use the provided loss function
+        loss = loss(outputs, batch_y)
+
+        # Zero the gradients
+        model.zero_grad()
+
+        # Backward pass
+        loss.backward()
+
+        # Collect the gradients
+        data_grad = perturbed_images.grad.data
+
+        # Create the perturbation
+        perturbed_images = perturbed_images + alpha * data_grad.sign()
+
+        # Project the perturbed image back to the allowed range
+        perturbation = torch.clamp(perturbed_images - batch_x, min=-epsilon, max=epsilon)
+        perturbed_images = batch_x + perturbation
+        perturbed_images = torch.clamp(perturbed_images, 0, 1)  # Ensure valid pixel range
+
+        # Reset gradients
+        perturbed_images.grad = None
+
+    return perturbed_images
+
+from autoattack.autoattack import AutoAttack    
+
+def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03):
+    """
+    Applies AutoAttack to a batch of images.
+    Args:
+        batch_x (torch.Tensor): Input images (shape [B, C, H, W]).
+        batch_y (torch.Tensor): True labels.
+        model (torch.nn.Module): PyTorch model (outputs logits).
+        steps (int): Max iterations for APGD attacks.
+        epsilon (float): Perturbation budget (Linf norm).
+    Returns:
+        torch.Tensor: Adversarial examples.
+    """
+    
+    device = 'cpu'  # Explicitly set device to CPU
+
+    # Move model and data to CPU if they are not already
+    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
+
+    # Initialize AutoAttack
+    adversary = AutoAttack(
+        model,
+        norm='Linf',
+        eps=epsilon,
+        version='standard',
+        device=device, # Explicitly set device to CPU
+        verbose=False
+        square_attack_n_restarts=5,   # Increase restarts
+        square_attack_n_iters=10000   # Increase iterations per restart
+    )
+
+    # Customize steps for APGD attacks
+    # adversary.apgd.n_iter = steps
+    # adversary.apgd_targeted.n_iter = steps
+
+    try:
+        # Run the attack
+        x_adv = adversary.run_standard_evaluation(batch_x, batch_y)
+    except Exception as e:
+        print(f"AutoAttack failed: {e}")
+        x_adv = batch_x  # Fallback to original inputs
+
+    return x_adv
+    
