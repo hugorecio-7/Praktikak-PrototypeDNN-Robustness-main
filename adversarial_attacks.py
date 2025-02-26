@@ -154,7 +154,14 @@ def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
     # model = model.to(device).eval()
 
     # Ensure requires_grad is set to True
-    batch_x = batch_x.clone().detach().requires_grad_(True)
+    device = 'cpu'  # Explicitly set device to CPU
+
+    # Move model and data to CPU if they are not already
+    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+    batch_x = batch_x.clone().requires_grad_(True)
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
+    
     
     # Convert the PyTorch model to Foolbox
     fmodel = fb.PyTorchModel(model, bounds=(0, 1))
@@ -212,62 +219,6 @@ def LinfAdditiveUniformNoise_attack(batch_x, batch_y, model, epsilon=0.3):
     
     return  clipped
 
-def LinfFMN_attack(batch_x, batch_y, model, loss, steps=50, epsilon=0.3, alpha=0.01):
-    """
-    Applies the LinfFMN attack from Foolbox to a batch of images.
-
-    Args:
-        batch_x (torch.Tensor): Batch of input images.
-        model (torch.nn.Module): PyTorch model to attack.
-        batch_y (torch.Tensor): True labels of the input batch.
-        steps (int): Maximum number of iterations for the attack.
-        epsilon (float): The epsilon value to scale the perturbations.
-
-    Returns:
-        torch.Tensor: Perturbed images.
-    """
-    # Do not have GPU
-    # device = batch_x.device
-    # model = model.to(device).eval()
-
-    # Ensure the model is in evaluation mode
-    model.eval()
-
-    # Set requires_grad attribute of tensor to True
-    batch_x.requires_grad = True
-
-    # Generate initial perturbation
-    perturbed_images = batch_x.clone()
-
-    for _ in range(steps):
-        # Forward pass
-        outputs = model(perturbed_images)
-        
-        # Use the provided loss function
-        loss = loss(outputs, batch_y)
-
-        # Zero the gradients
-        model.zero_grad()
-
-        # Backward pass
-        loss.backward()
-
-        # Collect the gradients
-        data_grad = perturbed_images.grad.data
-
-        # Create the perturbation
-        perturbed_images = perturbed_images + alpha * data_grad.sign()
-
-        # Project the perturbed image back to the allowed range
-        perturbation = torch.clamp(perturbed_images - batch_x, min=-epsilon, max=epsilon)
-        perturbed_images = batch_x + perturbation
-        perturbed_images = torch.clamp(perturbed_images, 0, 1)  # Ensure valid pixel range
-
-        # Reset gradients
-        perturbed_images.grad = None
-
-    return perturbed_images
-
 from autoattack.autoattack import AutoAttack    
 
 def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03):
@@ -297,14 +248,17 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03):
         eps=epsilon,
         version='standard',
         device=device, # Explicitly set device to CPU
-        verbose=False
-        square_attack_n_restarts=5,   # Increase restarts
-        square_attack_n_iters=10000   # Increase iterations per restart
+        verbose=False,
     )
+    
+        # Increase number of restarts for Square Attack
+    if hasattr(adversary, "square_attack"):
+        adversary.square_attack.n_queries = 20000  # Increase number of queries
+        adversary.square_attack.n_restarts = 10  # Increase restarts
 
-    # Customize steps for APGD attacks
-    # adversary.apgd.n_iter = steps
-    # adversary.apgd_targeted.n_iter = steps
+    # Increase steps for APGD
+    if hasattr(adversary, "apgd_ce"):
+        adversary.apgd_ce.n_iter = steps  # Increase number of iterations
 
     try:
         # Run the attack
@@ -315,3 +269,45 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03):
 
     return x_adv
     
+def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
+    """
+    Applies the LinfDeepFool attack from Foolbox to a batch of images.
+
+    Args:
+        batch_x (torch.Tensor): Batch of input images.
+        model (torch.nn.Module): PyTorch model to attack.
+        batch_y (torch.Tensor): True labels of the input batch.
+        steps (int): Maximum number of iterations for the attack.
+        epsilon (float): The epsilon value to scale the perturbations.
+
+    Returns:
+        torch.Tensor: Perturbed images.
+    """
+    # Do not have GPU
+    # device = batch_x.device
+    # model = model.to(device).eval()
+
+    device = 'cpu'
+    # Move model and data to CPU if they are not already
+    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+    batch_x = batch_x.clone().requires_grad_(True)
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
+    
+    # Convert the PyTorch model to Foolbox
+    fmodel = fb.PyTorchModel(model, bounds=(0, 1))
+
+    # Create the attack
+    attack = fb.attacks.LinfBasicIterativeAttack(steps=steps)
+
+    # Convert inputs to Foolbox format (EagerPy)
+    x_foolbox = ep.astensor(batch_x)
+    y_foolbox = ep.astensor(batch_y)
+    
+    try:
+        raw, clipped, is_adv = attack(fmodel, x_foolbox, y_foolbox, epsilons=[epsilon])
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        return batch_x  # Fallback to original input
+    
+    return  clipped
