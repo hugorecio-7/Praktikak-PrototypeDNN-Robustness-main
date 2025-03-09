@@ -325,7 +325,7 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
         batch_x = batch[0]
         batch_y = batch[1]
         batch_x = batch_x.to(device)
-        batch_x.requires_grad = True
+        #batch_x.requires_grad = True
         batch_y = batch_y.to(device)
 
         for idm, model in enumerate(models):

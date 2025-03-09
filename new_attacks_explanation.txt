@@ -38,7 +38,8 @@ This attack is not iterative—it simply applies noise once and tests the model.
 
 LInfFMNAttack (Fast Minimum-Norm Attack:) 
 
-Is an adversarial attack that searches for the smallest perturbation in the L∞-norm that successfully misclassifies an input. Unlike iterative gradient-based attacks like PGD, FMN Attack is designed to be more efficient by dynamically adjusting its perturbation magnitude.
+	Is an adversarial attack that searches for the smallest perturbation in the L∞-norm that successfully misclassifies an input. 
+FMN Attack is designed to be more efficient by dynamically adjusting its perturbation magnitude. Moreover, it only computes a single-step perturbation based on the gradient.
 
 	1.-Initialization: 
 	
@@ -51,3 +52,11 @@ Is an adversarial attack that searches for the smallest perturbation in the L∞
 	3.-Stopping Criteria: 
 
 	Stops when misclassification occurs with minimal perturbation.
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+LinfBasicIterative_attack
+
+	This is an iterative gradient-based attack that perturbs an input by applying small, repeated steps within an 𝐿∞ bound. 
+Unlike non-adaptive noise-based attacks, this method leverages model gradients to systematically find adversarial perturbations that maximize misclassification so it is like PGDLinfAttack.
+The difference is that is a Deterministic Attack: It starts directly from the original input x without any random initialization. This means there is no randomness, the attack produces the same adversarial example every time for a given input.

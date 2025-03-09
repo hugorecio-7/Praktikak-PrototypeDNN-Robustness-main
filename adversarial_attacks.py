@@ -158,7 +158,6 @@ def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
 
     # Move model and data to CPU if they are not already
     model = model.to(device).eval() # Ensure model is on CPU and in eval mode
-    batch_x = batch_x.clone().requires_grad_(True)
     batch_x = batch_x.to(device)
     batch_y = batch_y.to(device)
     
@@ -174,7 +173,7 @@ def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
     y_foolbox = ep.astensor(batch_y)
     
     try:
-        raw, clipped, is_adv = attack(fmodel, x_foolbox, y_foolbox, epsilons=epsilon)
+        raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
     except Exception as e:
         print(f"Attack failed: {e}")
         return batch_x  # Fallback to original input
@@ -195,7 +194,9 @@ def LinfAdditiveUniformNoise_attack(batch_x, batch_y, model, epsilon=0.3):
         PyTorchTensor: Perturbed images.
     """
     # Do not have GPU
-    # device = batch_x.device
+    device ="cpu"
+    batch_x.to(device)
+    batch_y.to(device)
     # model = model.to(device).eval()
     
     model.eval()  # Set the model to evaluation mode
@@ -205,14 +206,10 @@ def LinfAdditiveUniformNoise_attack(batch_x, batch_y, model, epsilon=0.3):
 
     # Define attack
     attack = fb.attacks.LinfAdditiveUniformNoiseAttack()
-    
-    # Convert inputs to Foolbox format (EagerPy)
-    x_foolbox = ep.astensor(batch_x)
-    y_foolbox = ep.astensor(batch_y)
 
     # Run attack
     try:
-        raw, clipped, is_adv = attack(fmodel, x_foolbox, y_foolbox, epsilons=epsilon)
+        raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
     except Exception as e:
         print(f"Attack failed: {e}")
         return batch_x  # Fallback to original input
@@ -271,7 +268,7 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03):
     
 def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
     """
-    Applies the LinfDeepFool attack from Foolbox to a batch of images.
+    Applies the LinfBasicIterative_attack attack from Foolbox to a batch of images.
 
     Args:
         batch_x (torch.Tensor): Batch of input images.
@@ -290,7 +287,6 @@ def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
     device = 'cpu'
     # Move model and data to CPU if they are not already
     model = model.to(device).eval() # Ensure model is on CPU and in eval mode
-    batch_x = batch_x.clone().requires_grad_(True)
     batch_x = batch_x.to(device)
     batch_y = batch_y.to(device)
     
@@ -299,13 +295,47 @@ def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
 
     # Create the attack
     attack = fb.attacks.LinfBasicIterativeAttack(steps=steps)
-
-    # Convert inputs to Foolbox format (EagerPy)
-    x_foolbox = ep.astensor(batch_x)
-    y_foolbox = ep.astensor(batch_y)
     
     try:
-        raw, clipped, is_adv = attack(fmodel, x_foolbox, y_foolbox, epsilons=[epsilon])
+        raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        return batch_x  # Fallback to original input
+    
+    return  clipped
+
+def LinfFMNA_attack(batch_x, batch_y, model, steps=100, epsilon=0.3):
+    """
+    Applies the LinfFMNA_attack attack from Foolbox to a batch of images.
+
+    Args:
+        batch_x (torch.Tensor): Batch of input images.
+        model (torch.nn.Module): PyTorch model to attack.
+        batch_y (torch.Tensor): True labels of the input batch.
+        steps (int): Maximum number of iterations for the attack.
+        epsilon (float): The epsilon value to scale the perturbations.
+
+    Returns:
+        torch.Tensor: Perturbed images.
+    """
+    # Do not have GPU
+    # device = batch_x.device
+    # model = model.to(device).eval()
+
+    device = 'cpu'
+    # Move model and data to CPU if they are not already
+    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
+    
+    # Convert the PyTorch model to Foolbox
+    fmodel = fb.PyTorchModel(model, bounds=(0, 1))
+
+    # Create the attack
+    attack = fb.attacks.LInfFMNAttack(steps=steps)
+    
+    try:
+        raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
     except Exception as e:
         print(f"Attack failed: {e}")
         return batch_x  # Fallback to original input
