@@ -33,6 +33,13 @@ Sample noise δ from a uniform distribution within a predefined bound ϵ: 𝛿�
 	
 This attack is not iterative—it simply applies noise once and tests the model.
 
+------------------------------------------------------------------------------------------------------------------------------------
+
+LinfBasicIterative_attack
+
+	This is an iterative gradient-based attack that perturbs an input by applying small, repeated steps within an 𝐿∞ bound. 
+Unlike non-adaptive noise-based attacks, this method leverages model gradients to systematically find adversarial perturbations that maximize misclassification so it is like PGDLinfAttack.
+The difference is that is a Deterministic Attack: It starts directly from the original input x without any random initialization. This means there is no randomness, the attack produces the same adversarial example every time for a given input.
 
 ------------------------------------------------------------------------------------------------------------------------------------
 
@@ -55,8 +62,8 @@ FMN Attack is designed to be more efficient by dynamically adjusting its perturb
 
 ------------------------------------------------------------------------------------------------------------------------------------
 
-LinfBasicIterative_attack
+LinfMomentumIterativeFastGradientMethod:
 
-	This is an iterative gradient-based attack that perturbs an input by applying small, repeated steps within an 𝐿∞ bound. 
-Unlike non-adaptive noise-based attacks, this method leverages model gradients to systematically find adversarial perturbations that maximize misclassification so it is like PGDLinfAttack.
-The difference is that is a Deterministic Attack: It starts directly from the original input x without any random initialization. This means there is no randomness, the attack produces the same adversarial example every time for a given input.
+	This is an iterative gradient-based attack that extends the standard iterative fast gradient method by incorporating momentum into the update rule. 
+The addition of momentum helps stabilize the update direction and can lead to more transferable and robust adversarial examples compared to methods that simply use the sign of the current gradient.
+The momentum means that instead of just taking a single, immediate step based solely on the current slope (gradient), you also add a portion of the previous step. 

@@ -167,10 +167,6 @@ def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
 
     # Create the attack
     attack = fb.attacks.LinfDeepFoolAttack(steps=steps)
-
-    # Convert inputs to Foolbox format (EagerPy)
-    x_foolbox = ep.astensor(batch_x)
-    y_foolbox = ep.astensor(batch_y)
     
     try:
         raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
@@ -266,7 +262,7 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03):
 
     return x_adv
     
-def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
+def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3, random_start=True):
     """
     Applies the LinfBasicIterative_attack attack from Foolbox to a batch of images.
 
@@ -294,7 +290,7 @@ def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
     fmodel = fb.PyTorchModel(model, bounds=(0, 1))
 
     # Create the attack
-    attack = fb.attacks.LinfBasicIterativeAttack(steps=steps)
+    attack = fb.attacks.LinfBasicIterativeAttack(steps=steps, random_start=random_start)
     
     try:
         raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
@@ -333,6 +329,82 @@ def LinfFMNA_attack(batch_x, batch_y, model, steps=100, epsilon=0.3):
 
     # Create the attack
     attack = fb.attacks.LInfFMNAttack(steps=steps)
+    
+    try:
+        raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        return batch_x  # Fallback to original input
+    
+    return  clipped
+
+def LinfMomentumIterativeFastGradient_attack(batch_x, batch_y, model, steps=100, epsilon=0.3):
+    """
+    Applies the LinfBaseGradientDescent attack from Foolbox to a batch of images.
+
+    Args:
+        batch_x (torch.Tensor): Batch of input images.
+        model (torch.nn.Module): PyTorch model to attack.
+        batch_y (torch.Tensor): True labels of the input batch.
+        steps (int): Maximum number of iterations for the attack.
+        epsilon (float): The epsilon value to scale the perturbations.
+
+    Returns:
+        torch.Tensor: Perturbed images.
+    """
+    # Do not have GPU
+    # device = batch_x.device
+    # model = model.to(device).eval()
+
+    device = 'cpu'
+    # Move model and data to CPU if they are not already
+    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
+    
+    # Convert the PyTorch model to Foolbox
+    fmodel = fb.PyTorchModel(model, bounds=(0, 1))
+
+    # Create the attack
+    attack = fb.attacks.LinfMomentumIterativeFastGradientMethod(steps=steps)
+    
+    try:
+        raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        return batch_x  # Fallback to original input
+    
+    return  clipped
+
+def LinfAdamProjectedGradientDescent_attack_foolbox(batch_x, batch_y, model, steps=100, epsilon=0.3, random_start=True):
+    """
+    Applies the LinfBaseGradientDescent attack from Foolbox to a batch of images.
+
+    Args:
+        batch_x (torch.Tensor): Batch of input images.
+        model (torch.nn.Module): PyTorch model to attack.
+        batch_y (torch.Tensor): True labels of the input batch.
+        steps (int): Maximum number of iterations for the attack.
+        epsilon (float): The epsilon value to scale the perturbations.
+
+    Returns:
+        torch.Tensor: Perturbed images.
+    """
+    # Do not have GPU
+    # device = batch_x.device
+    # model = model.to(device).eval()
+
+    device = 'cpu'
+    # Move model and data to CPU if they are not already
+    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
+    
+    # Convert the PyTorch model to Foolbox
+    fmodel = fb.PyTorchModel(model, bounds=(0, 1))
+
+    # Create the attack
+    attack = fb.attacks.LinfAdamProjectedGradientDescentAttack(steps=steps, random_start=random_start)
     
     try:
         raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
