@@ -135,7 +135,7 @@ def PGDL2_attack(batch_x, loss_f, iters, eps, alpha, random_start):
 import eagerpy as ep
 import foolbox as fb
 
-def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
+def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, candidates=10, overshoot=1.02, epsilon=0.3):
     """
     Applies the LinfDeepFool attack from Foolbox to a batch of images.
 
@@ -166,7 +166,7 @@ def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, epsilon=0.3):
     fmodel = fb.PyTorchModel(model, bounds=(0, 1))
 
     # Create the attack
-    attack = fb.attacks.LinfDeepFoolAttack(steps=steps)
+    attack = fb.attacks.LinfDeepFoolAttack(steps=steps, candidates=candidates, overshoot=overshoot)
     
     try:
         raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
@@ -300,7 +300,7 @@ def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3, ra
     
     return  clipped
 
-def LinfFMNA_attack(batch_x, batch_y, model, steps=100, epsilon=0.3):
+def LinfFMNA_attack(batch_x, batch_y, model, steps=100, max_stepsize=2, min_stepsize=1e-3, gamma=0.1, epsilon=0.3):
     """
     Applies the LinfFMNA_attack attack from Foolbox to a batch of images.
 
@@ -328,7 +328,7 @@ def LinfFMNA_attack(batch_x, batch_y, model, steps=100, epsilon=0.3):
     fmodel = fb.PyTorchModel(model, bounds=(0, 1))
 
     # Create the attack
-    attack = fb.attacks.LInfFMNAttack(steps=steps)
+    attack = fb.attacks.LInfFMNAttack(steps=steps, max_stepsize=max_stepsize, min_stepsize=min_stepsize, gamma=gamma)
     
     try:
         raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
@@ -413,3 +413,53 @@ def LinfAdamProjectedGradientDescent_attack_foolbox(batch_x, batch_y, model, ste
         return batch_x  # Fallback to original input
     
     return  clipped
+
+from autoattack.autoattack import AutoAttack    
+
+def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='standard'):
+    """
+    Applies AutoAttack to a batch of images.
+    Args:
+        batch_x (torch.Tensor): Input images (shape [B, C, H, W]).
+        batch_y (torch.Tensor): True labels.
+        model (torch.nn.Module): PyTorch model (outputs logits).
+        steps (int): Max iterations for APGD attacks.
+        epsilon (float): Perturbation budget (Linf norm).
+    Returns:
+        torch.Tensor: Adversarial examples.
+    """
+    
+    device = 'cpu'  # Explicitly set device to CPU
+
+    # Move model and data to CPU if they are not already
+    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
+
+    # Initialize AutoAttack
+    adversary = AutoAttack(
+        model,
+        norm='Linf',
+        eps=epsilon,
+        version='rand',
+        device=device, # Explicitly set device to CPU
+        verbose=False,
+    )
+    
+    #     # Increase number of restarts for Square Attack
+    # if hasattr(adversary, "square_attack"):
+    #     adversary.square_attack.n_queries = 20000  # Increase number of queries
+    #     adversary.square_attack.n_restarts = 10  # Increase restarts
+
+    # # Increase steps for APGD
+    # if hasattr(adversary, "apgd_ce"):
+    #     adversary.apgd_ce.n_iter = steps  # Increase number of iterations
+
+    try:
+        # Run the attack
+        x_adv = adversary.run_standard_evaluation(batch_x, batch_y)
+    except Exception as e:
+        print(f"AutoAttack failed: {e}")
+        x_adv = batch_x  # Fallback to original inputs
+
+    return x_adv

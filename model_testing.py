@@ -318,9 +318,12 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Define the device
     dim = max_eps+1 if isinstance(max_eps, int) else int(max_eps/step) + 1
-   
+    
     results = np.zeros((len(models), dim))
 
+    #Desired epsilon values to plot
+    desired_epsilons = np.arange(0, 0.81, 0.1)
+    i=0
     for i, batch in enumerate(test_loader):
         batch_x = batch[0]
         batch_y = batch[1]
@@ -351,8 +354,6 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
                 
                 if foolbox_use:
                     perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)
-                    # Convert EagerPy tensor to PyTorch tensor
-                    perturbed_batch_x = ep.astensor(perturbed_batch_x).raw
                 else:
                     adv_attack = partial(attack, loss_f=loss_f, eps=eps)
                     perturbed_batch_x = adv_attack(batch_x)
@@ -618,3 +619,80 @@ def plot_prototype_projection_with_data(reduced_prototypes, prototype_imgs, redu
     
     plt.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
+        
+def plot_adversarial_examples(model, model_name, test_loader, loss, attack, attack_name, num_examples, eps=0.3, foolbox_use=True):
+    """
+    Visualize real images with their respective after-attack images.
+
+    Args:
+        model (torch.nn.Module): The trained model.
+        model_name (str): Name of the model (for title/display purposes).
+        test_loader (torch.utils.data.DataLoader): The data loader for the test dataset.
+        loss (callable): Loss function.
+        attack (callable): The attack function used to generate adversarial examples.
+        num_examples (int): Number of examples to display.
+        eps (float): Perturbation budget for the attack.
+        foolbox_use (bool): Whether to use Foolbox for attacks.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    plotted = 0  # Counter for total images plotted
+    images = []
+    perturbed_images = []
+    real_labels = []
+    pred_labels = []
+    pred_adv_labels = []
+
+    for i, batch in enumerate(test_loader):
+        if plotted >= num_examples:
+            break  # Stop once we reach the desired number
+
+        batch_x, batch_y = batch[0].to(device), batch[1].to(device)
+
+        # Generate adversarial examples
+        loss_f = partial(loss, batch_y=batch_y)
+        if foolbox_use:
+            perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)
+        else:
+            adv_attack = partial(attack, loss_f=loss_f, eps=eps)
+            perturbed_batch_x = adv_attack(batch_x)
+
+        # Get predictions
+        pred_y = torch.nn.functional.softmax(model(batch_x), dim=1)
+        pred_y_adv = torch.nn.functional.softmax(model(perturbed_batch_x), dim=1)
+
+        # Collect examples
+        for j in range(len(batch_x)):
+            if plotted >= num_examples:
+                break  # Stop collecting once we reach the limit
+
+            images.append(batch_x[j].cpu().detach().numpy())
+            perturbed_images.append(perturbed_batch_x[j].cpu().detach().numpy())
+            real_labels.append(batch_y[j].cpu().item())
+            pred_labels.append(torch.argmax(pred_y[j]).cpu().item())
+            pred_adv_labels.append(torch.argmax(pred_y_adv[j]).cpu().item())
+
+            plotted += 1  # Increment counter
+
+    # Plot collected images
+    fig, axes = plt.subplots(num_examples, 2, figsize=(8, num_examples * 3))
+    fig.suptitle(f"Model: {model_name} | Attack: {attack_name} | Epsilon: {eps}", fontsize=14, fontweight="bold")  
+        
+    for i in range(num_examples):
+        # Original Image
+        img = np.transpose(images[i], (1, 2, 0))  # Convert CHW -> HWC
+        plt.subplot(num_examples, 2, 2 * i + 1)
+        plt.imshow(img)
+        plt.axis("off")
+        plt.title(f"Orig: {real_labels[i]}\nPred: {pred_labels[i]}")
+
+        # Adversarial Image
+        img_adv = np.transpose(perturbed_images[i], (1, 2, 0))
+        plt.subplot(num_examples, 2, 2 * i + 2)
+        plt.imshow(img_adv)
+        plt.axis("off")
+        plt.title(f"Adv Pred: {pred_adv_labels[i]}")
+
+    plt.tight_layout()
+    plt.show()
+    
