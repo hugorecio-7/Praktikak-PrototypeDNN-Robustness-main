@@ -8,6 +8,7 @@ import matplotlib.gridspec as gridspec
 from sklearn.decomposition import PCA
 import foolbox as fb
 import eagerpy as ep
+import pandas as pd
 
 softmax = Softmax()
 
@@ -321,8 +322,6 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
     
     results = np.zeros((len(models), dim))
 
-    #Desired epsilon values to plot
-    desired_epsilons = np.arange(0, 0.81, 0.1)
     i=0
     for i, batch in enumerate(test_loader):
         batch_x = batch[0]
@@ -378,7 +377,93 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
     plt.ylabel('Accuracy')
     plt.legend()
     plt.show()
- 
+
+def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks, attack_names, loss, max_eps, step, foolbox_uses):
+    """
+    Plots and saves the accuracy of models under multiple adversarial attacks for different epsilon values.
+
+    Args:
+        models (list): List of PyTorch models.
+        model_names (list): List of names corresponding to the models.
+        test_loader (torch.utils.data.DataLoader): Data loader for the test dataset.
+        attacks (list): List of adversarial attack functions.
+        attack_names (list): List of attack names.
+        loss (function): Loss function used for the attack.
+        max_eps (float or int): Maximum epsilon value for the attack.
+        step (float, optional): Step size for epsilon values. Defaults to 0.025.
+        foolbox_use (bool, optional): Whether to use Foolbox for attacks.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dim = max_eps + 1 if isinstance(max_eps, int) else int(round(max_eps / step)) + 1
+    x_axis = np.linspace(0, max_eps, dim) if isinstance(max_eps, float) else np.arange(0, max_eps + 1, 1)
+
+    for attack, attack_name, foolbox_use in zip(attacks, attack_names, foolbox_uses):
+        results = np.zeros((len(models), dim))
+
+        for batch in test_loader:
+            batch_x, batch_y = batch
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
+
+            for idm, model in enumerate(models):
+                pred_y = model.forward(batch_x)
+                pred_y = torch.softmax(pred_y, dim=1)
+
+                loss_f = partial(loss, model=model, batch_y=batch_y)
+
+                # Non-adversarial test set accuracy
+                _, max_indices = torch.max(pred_y, 1)
+                n = max_indices.size(0)
+                results[idm, 0] += (max_indices == batch_y).float().sum().item() / n
+
+                # Adversarial test set accuracy for different epsilon values
+                maxx = int(round(max_eps / step)) if isinstance(max_eps, float) else max_eps
+                s = int(round(step / step)) if isinstance(max_eps, float) else 1
+
+                for ide, epss in enumerate(np.arange(s, maxx + s, s)):
+                    eps = epss * step if isinstance(max_eps, float) else epss
+
+                    # Generate adversarial examples
+                    if foolbox_use:
+                        perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)
+                    else:
+                        adv_attack = partial(attack, loss_f=loss_f, eps=eps)
+                        perturbed_batch_x = adv_attack(batch_x)
+
+                    # Get predictions for adversarial examples
+                    pred_y_adv = model.forward(perturbed_batch_x)
+
+                    # Adversarial test accuracy
+                    _, max_indices_adv = torch.max(pred_y_adv, 1)
+                    results[idm, ide + 1] += (max_indices_adv == batch_y).float().sum().item() / n
+
+        results /= len(test_loader)
+
+        # Save results to CSV
+        csv_path = f"results/Accuracy/accuracy_{attack_name}_maxeps({max_eps})_step({step})_results.csv"
+        df = pd.DataFrame(results.T, columns=model_names, index=x_axis)
+        df.index.name = "Epsilon"
+        df.to_csv(csv_path)
+
+        # Plot results
+        plt.figure(figsize=(8, 6))
+        for i in range(len(models)):
+            plt.plot(x_axis, results[i], label=model_names[i])
+            plt.scatter(x_axis, results[i])
+
+        plt.xlabel('Epsilon')
+        plt.ylabel('Accuracy')
+        plt.legend()
+        plt.title(f"Adversarial Attack Accuracy vs. Epsilon ({attack_name})")
+
+        # Save plot
+        jpg_path = f"results/Plot/accuracy_{attack_name}_maxeps({max_eps})_step({step})_plot.jpg"
+        plt.savefig(jpg_path, dpi=300)
+        plt.show()
+
+        print(f"Accuracy results saved to {csv_path}")
+        print(f"Plot saved to {jpg_path}")
+
 def test_model(model, test_loader):
     """
     Test the given model on the test dataset and calculate the accuracy.
