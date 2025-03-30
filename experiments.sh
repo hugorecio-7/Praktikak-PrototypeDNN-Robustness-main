@@ -1,0 +1,1 @@
+python run_test.py --models S30 B30 RS30 RB30 FTB30n FTB30p --attacks AutoAttack_adv --max_eps 0.8 --step 0.025 

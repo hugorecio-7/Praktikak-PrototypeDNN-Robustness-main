@@ -1,7 +1,7 @@
 import argparse
 import pandas as pd
 from functools import partial
-from model_testing import *
+from model_testing import adversarial_attacks_eps_plot_test
 from data_loader import *
 from loss_functions import *
 from adversarial_attacks import *
@@ -18,7 +18,7 @@ paths = {"B30": "saved_model\mnist_model\mnist_cae_balanced_clstsep_1500_0.002_2
 attack_params = {
     "PGDLInf_attack": {"iters": 2, "alpha": 1, "random_start": True},
     "LinfDeepFool_attack": {"steps": 100, "candidates": 3, "overshoot": 1.02},
-    "LinfAdditiveUniformNoise_attack": {},  # No tiene parámetros adicionales
+    "LinfAdditiveUniformNoise_attack": {}, 
     "LinfBasicIterative_attack": {"steps": 10, "random_start": True},
     "LinfFMNA_attack": {"steps": 100, "max_stepsize": 2, "min_stepsize": 1e-3, "gamma": 0.1},
     "LinfMomentumIterativeFastGradient_attack": {"steps": 10},
