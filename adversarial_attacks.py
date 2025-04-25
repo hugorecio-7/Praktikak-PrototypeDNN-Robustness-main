@@ -149,12 +149,8 @@ def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, candidates=10, oversh
     Returns:
         torch.Tensor: Perturbed images.
     """
-    # Do not have GPU
-    # device = batch_x.device
-    # model = model.to(device).eval()
 
-    # Ensure requires_grad is set to True
-    device = 'cpu'  # Explicitly set device to CPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Move model and data to CPU if they are not already
     model = model.to(device).eval() # Ensure model is on CPU and in eval mode
@@ -189,13 +185,11 @@ def LinfAdditiveUniformNoise_attack(batch_x, batch_y, model, epsilon=0.3):
     Returns:
         PyTorchTensor: Perturbed images.
     """
-    # Do not have GPU
-    device ="cpu"
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     batch_x.to(device)
     batch_y.to(device)
-    # model = model.to(device).eval()
-    
-    model.eval()  # Set the model to evaluation mode
+    model = model.to(device).eval()
     
     # Convert the PyTorch model to Foolbox
     fmodel = fb.PyTorchModel(model, bounds=(0, 1))
@@ -212,56 +206,6 @@ def LinfAdditiveUniformNoise_attack(batch_x, batch_y, model, epsilon=0.3):
     
     return  clipped
 
-from autoattack.autoattack import AutoAttack    
-
-def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03):
-    """
-    Applies AutoAttack to a batch of images.
-    Args:
-        batch_x (torch.Tensor): Input images (shape [B, C, H, W]).
-        batch_y (torch.Tensor): True labels.
-        model (torch.nn.Module): PyTorch model (outputs logits).
-        steps (int): Max iterations for APGD attacks.
-        epsilon (float): Perturbation budget (Linf norm).
-    Returns:
-        torch.Tensor: Adversarial examples.
-    """
-    
-    device = 'cpu'  # Explicitly set device to CPU
-
-    # Move model and data to CPU if they are not already
-    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
-    batch_x = batch_x.to(device)
-    batch_y = batch_y.to(device)
-
-    # Initialize AutoAttack
-    adversary = AutoAttack(
-        model,
-        norm='Linf',
-        eps=epsilon,
-        version='standard',
-        device=device, # Explicitly set device to CPU
-        verbose=False,
-    )
-    
-        # Increase number of restarts for Square Attack
-    if hasattr(adversary, "square_attack"):
-        adversary.square_attack.n_queries = 20000  # Increase number of queries
-        adversary.square_attack.n_restarts = 10  # Increase restarts
-
-    # Increase steps for APGD
-    if hasattr(adversary, "apgd_ce"):
-        adversary.apgd_ce.n_iter = steps  # Increase number of iterations
-
-    try:
-        # Run the attack
-        x_adv = adversary.run_standard_evaluation(batch_x, batch_y)
-    except Exception as e:
-        print(f"AutoAttack failed: {e}")
-        x_adv = batch_x  # Fallback to original inputs
-
-    return x_adv
-    
 def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3, random_start=True):
     """
     Applies the LinfBasicIterative_attack attack from Foolbox to a batch of images.
@@ -276,11 +220,8 @@ def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3, ra
     Returns:
         torch.Tensor: Perturbed images.
     """
-    # Do not have GPU
-    # device = batch_x.device
-    # model = model.to(device).eval()
-
-    device = 'cpu'
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Move model and data to CPU if they are not already
     model = model.to(device).eval() # Ensure model is on CPU and in eval mode
     batch_x = batch_x.to(device)
@@ -314,11 +255,8 @@ def LinfFMNA_attack(batch_x, batch_y, model, steps=100, max_stepsize=2, min_step
     Returns:
         torch.Tensor: Perturbed images.
     """
-    # Do not have GPU
-    # device = batch_x.device
-    # model = model.to(device).eval()
-
-    device = 'cpu'
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Move model and data to CPU if they are not already
     model = model.to(device).eval() # Ensure model is on CPU and in eval mode
     batch_x = batch_x.to(device)
@@ -352,11 +290,8 @@ def LinfMomentumIterativeFastGradient_attack(batch_x, batch_y, model, steps=100,
     Returns:
         torch.Tensor: Perturbed images.
     """
-    # Do not have GPU
-    # device = batch_x.device
-    # model = model.to(device).eval()
 
-    device = 'cpu'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Move model and data to CPU if they are not already
     model = model.to(device).eval() # Ensure model is on CPU and in eval mode
     batch_x = batch_x.to(device)
@@ -390,11 +325,8 @@ def LinfAdamProjectedGradientDescent_attack_foolbox(batch_x, batch_y, model, ste
     Returns:
         torch.Tensor: Perturbed images.
     """
-    # Do not have GPU
-    # device = batch_x.device
-    # model = model.to(device).eval()
 
-    device = 'cpu'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Move model and data to CPU if they are not already
     model = model.to(device).eval() # Ensure model is on CPU and in eval mode
     batch_x = batch_x.to(device)
@@ -429,7 +361,7 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='sta
         torch.Tensor: Adversarial examples.
     """
     
-    device = 'cpu'  # Explicitly set device to CPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Explicitly set device to CPU
 
     # Move model and data to CPU if they are not already
     model = model.to(device).eval() # Ensure model is on CPU and in eval mode
@@ -441,7 +373,7 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='sta
         model,
         norm='Linf',
         eps=epsilon,
-        version='rand',
+        version=version,
         device=device, # Explicitly set device to CPU
         verbose=False,
     )

@@ -1,6 +1,7 @@
-#python run_test.py --models S30 B30 RS30 RB30 FTB30n FTB30p --attacks AutoAttack_adv --max_eps 0.8 --step 0.025 
-#python run_test.py --models S30 --attacks AutoAttack_adv --max_eps 0.8 --step 0.025 
 sbatch sbatch_experiments.sh S30 AutoAttack_adv 
-#sbatch sbatch_experiments.sh B30 AutoAttack_adv 
-
-
+sbatch sbatch_experiments.sh B30 AutoAttack_adv 
+sbatch sbatch_experiments.sh RS30 AutoAttack_adv 
+sbatch sbatch_experiments.sh RB30 AutoAttack_adv 
+sbatch sbatch_experiments.sh FTB30n AutoAttack_adv 
+sbatch sbatch_experiments.sh FTB30p AutoAttack_adv 
+#sbatch sbatch_experiments.sh S30 LinfAdditiveUniformNoise_attack 

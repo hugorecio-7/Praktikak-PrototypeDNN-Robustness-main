@@ -406,6 +406,7 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
             batch_y = batch_y.to(device)
 
             for idm, model in enumerate(models):
+                model = model.to(device)
                 pred_y = model.forward(batch_x)
                 pred_y = torch.softmax(pred_y, dim=1)
 
@@ -439,30 +440,32 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
 
         results /= len(test_loader)
 
-        # Save results to CSV
-        csv_path = f"results/Accuracy/accuracy_{attack_name}_maxeps({max_eps})_step({step})_results.csv"
-        df = pd.DataFrame(results.T, columns=model_names, index=x_axis)
-        df.index.name = "Epsilon"
-        df.to_csv(csv_path)
+        for idm, model_name in enumerate(model_names):
+            model_result = results[idm]
 
-        # Plot results
-        plt.figure(figsize=(8, 6))
-        for i in range(len(models)):
-            plt.plot(x_axis, results[i], label=model_names[i])
-            plt.scatter(x_axis, results[i])
+            # Save results to CSV
+            csv_path = f"results/Accuracy/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_results.csv"
+            df = pd.DataFrame({model_name: model_result}, index=x_axis)
+            df.index.name = "Epsilon"
+            df.to_csv(csv_path)
 
-        plt.xlabel('Epsilon')
-        plt.ylabel('Accuracy')
-        plt.legend()
-        plt.title(f"Adversarial Attack Accuracy vs. Epsilon ({attack_name})")
+            # Plot results
+            plt.figure(figsize=(8, 6))
+            plt.plot(x_axis, model_result, label=model_name)
+            plt.scatter(x_axis, model_result)
 
-        # Save plot
-        jpg_path = f"results/Plot/accuracy_{attack_name}_maxeps({max_eps})_step({step})_plot.jpg"
-        plt.savefig(jpg_path, dpi=300)
-        plt.show()
+            plt.xlabel('Epsilon')
+            plt.ylabel('Accuracy')
+            plt.legend()
+            plt.title(f"Adversarial Attack Accuracy vs. Epsilon\nModel: {model_name} | Attack: {attack_name}")
 
-        print(f"Accuracy results saved to {csv_path}")
-        print(f"Plot saved to {jpg_path}")
+            # Save plot
+            jpg_path = f"results/Plot/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_plot.jpg"
+            plt.savefig(jpg_path, dpi=300)
+            plt.close()
+
+            print(f"Accuracy results saved to {csv_path}")
+            print(f"Plot saved to {jpg_path}")
 
 def test_model(model, test_loader):
     """
