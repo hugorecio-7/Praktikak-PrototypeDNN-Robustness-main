@@ -1,10 +1,22 @@
 import argparse
 import pandas as pd
+import torch
+import torch.nn as nn
+import numpy as np
+import tensorflow as tf
 from functools import partial
 from model_testing import adversarial_attacks_eps_plot_test
 from data_loader import *
 from loss_functions import *
 from adversarial_attacks import *
+import json
+from types import SimpleNamespace
+from SENN.models.senn import SENN
+from SENN.models.conceptizers   import ConvConceptizer    
+from SENN.models.parameterizers import ConvParameterizer  
+from SENN.models.aggregators    import SumAggregator       
+from Prob_PSENN.ProbPSENN import ProbPSENN, ProbPSENN_VAE
+from ProtoVAE import model as model_protovae
 
 paths = {"B30": "saved_model/mnist_model/mnist_cae_balanced_clstsep_1500_0.002_250_True_0.0_20_1_1_1_1.0_0.0_30_4_32_1/mnist_cae00750.pth",
          "S30": "saved_model/mnist_model/mnist_cae_standard_default_1500_0.002_250_False_0.5_20_1_1_1_0.8_0.2_30_4_32_1/mnist_cae00750.pth",
@@ -13,7 +25,22 @@ paths = {"B30": "saved_model/mnist_model/mnist_cae_balanced_clstsep_1500_0.002_2
          "RB30": "saved_model/mnist_model/mnist_cae_adversarial_balanced_clstsep_pdglinf_ce_20_0.3_0.02_True_800_0.002_250_True_0.0_20_1_1_1_1.0_0.0_1.0_30_4_32_1/mnist_cae_adv00750.pth",
          "FTB30n": "saved_model/mnist_model/mnist_cae_FT_30_nothing_pdglinf_ce_20_0.3_0.02_True_20_0.002_250_20_1_1_1_1.0_0.0_1/mnist_cae_adv00020.pth",
          "FTB30a": "saved_model/mnist_model/mnist_cae_FT_30_autoencoder_pdglinf_ce_20_0.3_0.02_True_20_0.002_250_20_1_1_1_1.0_0.0_1/mnist_cae_adv00020.pth",
-         "FTB30p": "saved_model/mnist_model/mnist_cae_FT_30_prototypes_pdglinf_ce_20_0.3_0.02_True_20_0.002_250_20_1_1_1_1.0_0.0_1/mnist_cae_adv00020.pth"}
+         "FTB30p": "saved_model/mnist_model/mnist_cae_FT_30_prototypes_pdglinf_ce_20_0.3_0.02_True_20_0.002_250_20_1_1_1_1.0_0.0_1/mnist_cae_adv00020.pth",
+         # SENN models
+         "SENN_0_1": "SENN/results/mnist_lambda1e-1_seed29/checkpoints/best_model.pt",
+         "SENN_0_01": "SENN/results/mnist_lambda1e-2_seed29/checkpoints/best_model.pt",
+         "SENN_0_001": "SENN/results/mnist_lambda1e-3_seed29/checkpoints/best_model.pt",
+         # ProtoVAE models
+         "ProtoVAE": "ProtoVAE/saved_models/mnist/model.pth",
+         # Prob-PSENN models
+         "Prob_PSENN": "Prob_PSENN/results/mnist_None_40_gauss_full_cnn_32_10_0.001_128_True_exp_0/model/",
+         }
+
+config_paths = {
+        "SENN_0_1": "SENN/configs/mnist_lambda1e-1_seed29.json",
+        "SENN_0_01": "SENN/configs/mnist_lambda1e-2_seed29.json",
+        "SENN_0_001": "SENN/configs/mnist_lambda1e-3_seed29.json",
+}
 
 attack_params = {
     "PGDLInf_attack": {"iters": 2, "alpha": 1, "random_start": True},
@@ -37,13 +64,121 @@ foolbox_attacks = {
     "AutoAttack_adv": True,
 }
 
+#class ProbPSENNWrapper(nn.Module):
+#    def __init__(self, tf_model):
+#        super().__init__()
+#        self.tf_model = tf_model
+#
+#    def forward(self, x):
+#        
+#        # 1) to numpy & channel-last
+#        x_np = x.detach().cpu().numpy()              # [B, 1, 28, 28]
+#        x_np = np.squeeze(x_np, axis=1)              # [B, 28, 28]
+#
+#        # 2) resize to 32×32 using TF
+#        x_tf = tf.image.resize(
+#            x_np[..., np.newaxis],                   # [B, 28, 28, 1]
+#            [32, 32]
+#        )
+#        x_tf = tf.squeeze(x_tf, axis=-1).numpy()     # [B, 32, 32]
+#
+#        # 3) get the predictive distribution (TF)
+#        pred_dist = self.tf_model.get_pred_distrib(
+#            x_tf,
+#            n_samples=30,
+#            reduce_samples=True
+#        )
+#
+#        # 4) extract probability matrix from TF → NumPy
+#        probs_np = pred_dist.probs.numpy()           # [B, n_classes]
+#
+#        # 5a) convert to torch with grad enabled
+#        probs = torch.tensor(probs_np, device=x.device, requires_grad=True)
+#
+#        # 5b) convert to “logits” so AutoAttack sees proper gradients
+#        
+#        logits = torch.log(probs + 1e-12)
+#        return probs
+
+class ProbPSENNWrapper(nn.Module):
+    def __init__(self, tf_model):
+        super().__init__()
+        self.tf_model = tf_model
+
+    def forward(self, x):
+        # Resize in PyTorch (differentiable)
+        x_resized = torch.nn.functional.interpolate(
+            x, size=(32, 32), mode='bilinear', align_corners=False
+        )  # [B, 1, 32, 32]
+
+        # Detach and use TF model (non-differentiable)
+        with torch.no_grad():
+            x_np = x_resized.permute(0, 2, 3, 1).cpu().numpy()  # [B, 32, 32, 1]
+            pred_dist = self.tf_model.get_pred_distrib(x_np, n_samples=30, reduce_samples=True)
+            probs_np = pred_dist.probs.numpy()
+
+        # Reattach to computation graph
+        probs = torch.tensor(probs_np, device=x.device, requires_grad=True)
+        logits = torch.log(probs + 1e-12)
+        # Trick AutoAttack into "seeing" gradients (passthrough)
+        logits = logits + 0.0 * x.sum()  # Forces dependency on `x`
+        return logits
+
+class ProtoVAEWrapper(nn.Module):
+    def __init__(self, base_model):
+        super().__init__()
+        self.base = base_model
+
+    def forward(self, x):
+        logits, _ = self.base.pred_class(x)
+        return logits
+
+def instantiate_senn_from_config(config_path, device):
+    """
+    Reads a SENN JSON config and returns an uninitialized model.
+    """
+    with open(config_path, 'r') as f:
+        cfg_dict = json.load(f)
+    cfg_dict['device'] = str(device)
+    cfg = SimpleNamespace(**cfg_dict)
+
+    conceptizer = eval(cfg.conceptizer)(**cfg.__dict__)
+    parameterizer = eval(cfg.parameterizer)(**cfg.__dict__)
+    aggregator = eval(cfg.aggregator)(**cfg.__dict__)
+    model = SENN(conceptizer, parameterizer, aggregator)
+    return model
+
 def load_models(model_names):
     """Load models based on their names."""
     models = []
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     for name in model_names:
         model_path = paths[name]
-        model = torch.load(model_path, map_location=torch.device("cpu"))
-        model.eval()
+        if name in config_paths:
+            cfg_path = config_paths[name]
+            model = instantiate_senn_from_config(cfg_path, device)
+            # Load weights
+            state = torch.load(model_path, map_location=device)
+            model.load_state_dict(state["model_state"])
+            print("Model SENN loaded")
+            model.eval()
+        elif name == "Prob_PSENN":
+            if True:
+                model = ProbPSENN_VAE.load_model(model_path, "") #Load the model (VAE backbone)
+                model = ProbPSENNWrapper(model).to(device).eval()
+            else:
+                model = ProbPSENN.load_model(model_path, "")     #Load the model (AE backbone)
+            print("Model Prob_PSENN loaded")
+        elif name == "ProtoVAE":
+            model = model_protovae.ProtoVAE().to(device)
+            state = torch.load(model_path, map_location=device)
+            model.load_state_dict(state)
+            model = ProtoVAEWrapper(model).to(device).eval()
+            print("Model ProtoVAE loaded")
+            #model.eval()
+        else:
+            model = torch.load(model_path, map_location=device)
+            model.eval()
         models.append(model)
     return models, model_names
 
@@ -81,7 +216,10 @@ def main():
     attack_fns = []
     for attack in args.attacks:
         attack_fn = get_function(attack)
-        params = attack_params.get(attack, {})  # Get attack parameters
+        params = attack_params.get(attack, {}).copy()
+        if attack == "AutoAttack_adv" and args.models[0] == "Prob_PSENN":
+            params["version"] = "rand"
+        #params = attack_params.get(attack, {})  # Get attack parameters
         attack_fns.append(partial(attack_fn, **params))
 
     data_folder = 'data'
@@ -90,7 +228,10 @@ def main():
     random_seed = 0
 
     # download MNIST data
-    test_loader = get_test_loader(data_folder, batch_size, shuffle=True, num_workers=n_workers, pin_memory=True)
+    protovae = False    
+    if args.models[0] == "ProtoVAE":
+        protovae=True
+    test_loader = get_test_loader(data_folder, batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, protovae=protovae)
 
     foolbox = [foolbox_attacks.get(attack, False) for attack in args.attacks]
 

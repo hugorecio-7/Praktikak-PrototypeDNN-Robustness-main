@@ -37,9 +37,17 @@ def get_test_loader(data_dir,
                     batch_size,
                     shuffle=True,
                     num_workers=0,
-                    pin_memory=True):
+                    pin_memory=True,
+                    protovae=False):
 
-    dataset = datasets.MNIST(root=data_dir, train=False, download=True, transform=transforms.ToTensor())
+    if protovae == True:
+        transform_protovae = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ])
+        dataset = datasets.MNIST(root=data_dir, train=False, download=True, transform=transform_protovae)
+    else:
+        dataset = datasets.MNIST(root=data_dir, train=False, download=True, transform=transforms.ToTensor())
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, 
                                               num_workers=num_workers, pin_memory=pin_memory)
     return data_loader

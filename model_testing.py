@@ -9,6 +9,8 @@ from sklearn.decomposition import PCA
 import foolbox as fb
 import eagerpy as ep
 import pandas as pd
+from ProtoVAE.model import ProtoVAE
+from Prob_PSENN.ProbPSENN import ProbPSENN, ProbPSENN_VAE
 
 softmax = Softmax()
 
@@ -405,8 +407,19 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
 
+            print(batch_x.min(), batch_x.max())
+
             for idm, model in enumerate(models):
-                model = model.to(device)
+                
+                if not isinstance(model, ProbPSENN_VAE):
+                    model = model.to(device)
+                
+                #if isinstance(model, ProtoVAE):
+                #    pred_y, _ = model.pred_class(batch_x)
+                #if isinstance(model, ProbPSENN) or isinstance(model, ProbPSENN_VAE):
+                #    pred_y = model.get_pred_distrib(batch_x.cpu().numpy(), n_samples=30, reduce_samples=True)# What is used in the eval.py in github
+                #    pred_y = torch.from_numpy(pred_y).to(device)
+                #else:
                 pred_y = model.forward(batch_x)
                 pred_y = torch.softmax(pred_y, dim=1)
 
@@ -432,12 +445,19 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
                         perturbed_batch_x = adv_attack(batch_x)
 
                     # Get predictions for adversarial examples
+                    
+                    #if isinstance(model, ProtoVAE):
+                    #    pred_y_adv, _ = model.pred_class(perturbed_batch_x)
+                    #if isinstance(model, ProbPSENN_VAE) or isinstance(model, ProbPSENN):
+                    #    pred_y_adv = model.get_pred_distrib(perturbed_batch_x.cpu().numpy(), n_samples=30, reduce_samples=True)# What is used in the eval.py in github
+                    #    pred_y_adv = torch.from_numpy(pred_y_adv).to(device)
+                    #else:
                     pred_y_adv = model.forward(perturbed_batch_x)
 
                     # Adversarial test accuracy
                     _, max_indices_adv = torch.max(pred_y_adv, 1)
                     results[idm, ide + 1] += (max_indices_adv == batch_y).float().sum().item() / n
-
+        
         results /= len(test_loader)
 
         for idm, model_name in enumerate(model_names):
