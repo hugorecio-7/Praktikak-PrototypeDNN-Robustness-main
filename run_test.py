@@ -17,6 +17,7 @@ from SENN.models.parameterizers import ConvParameterizer
 from SENN.models.aggregators    import SumAggregator       
 from Prob_PSENN.ProbPSENN import ProbPSENN, ProbPSENN_VAE
 from ProtoVAE import model as model_protovae
+from autoattack import utils_tf2
 
 paths = {"B30": "saved_model/mnist_model/mnist_cae_balanced_clstsep_1500_0.002_250_True_0.0_20_1_1_1_1.0_0.0_30_4_32_1/mnist_cae00750.pth",
          "S30": "saved_model/mnist_model/mnist_cae_standard_default_1500_0.002_250_False_0.5_20_1_1_1_0.8_0.2_30_4_32_1/mnist_cae00750.pth",
@@ -50,7 +51,7 @@ attack_params = {
     "LinfFMNA_attack": {"steps": 100, "max_stepsize": 2, "min_stepsize": 1e-3, "gamma": 0.1},
     "LinfMomentumIterativeFastGradient_attack": {"steps": 10},
     "LinfAdamProjectedGradientDescent_attack_foolbox": {"steps": 10, "random_start": True},
-    "AutoAttack_adv": {"version": "standard"},
+    "AutoAttack_adv": {"version": "standard", "is_tf": False},
 }
 
 foolbox_attacks = {
@@ -64,41 +65,28 @@ foolbox_attacks = {
     "AutoAttack_adv": True,
 }
 
-#class ProbPSENNWrapper(nn.Module):
-#    def __init__(self, tf_model):
-#        super().__init__()
-#        self.tf_model = tf_model
-#
-#    def forward(self, x):
-#        
-#        # 1) to numpy & channel-last
-#        x_np = x.detach().cpu().numpy()              # [B, 1, 28, 28]
-#        x_np = np.squeeze(x_np, axis=1)              # [B, 28, 28]
-#
-#        # 2) resize to 32×32 using TF
-#        x_tf = tf.image.resize(
-#            x_np[..., np.newaxis],                   # [B, 28, 28, 1]
-#            [32, 32]
-#        )
-#        x_tf = tf.squeeze(x_tf, axis=-1).numpy()     # [B, 32, 32]
-#
-#        # 3) get the predictive distribution (TF)
-#        pred_dist = self.tf_model.get_pred_distrib(
-#            x_tf,
-#            n_samples=30,
-#            reduce_samples=True
-#        )
-#
-#        # 4) extract probability matrix from TF → NumPy
-#        probs_np = pred_dist.probs.numpy()           # [B, n_classes]
-#
-#        # 5a) convert to torch with grad enabled
-#        probs = torch.tensor(probs_np, device=x.device, requires_grad=True)
-#
-#        # 5b) convert to “logits” so AutoAttack sees proper gradients
-#        
-#        logits = torch.log(probs + 1e-12)
-#        return probs
+class ProbPSENNAdapter(utils_tf2.ModelAdapter):
+
+    def _ModelAdapter__check_channel_ordering(self):
+        return 'channels_last'
+
+    def __init__(self, tf_model):
+        super().__init__(tf_model)
+        self.tf_model = tf_model
+
+    def forward(self, x_tensor: torch.Tensor) -> torch.Tensor:
+        # Convert PyTorch tensor to NumPy array (float32)
+        x_np = x_tensor.detach().cpu().numpy()
+        #x_np = x_tensor.cpu().permute(0,2,3,1).numpy()
+        if x_np.ndim == 4 and x_np.shape[1] in (1, 3):
+            x_np = x_np.transpose(0, 2, 3, 1)
+        # Call the TF model's distribution function
+        distrib = self.tf_model.get_pred_distrib(x_np, n_samples=30, reduce_samples=True)
+        # Convert back to PyTorch tensor, preserving device if needed
+        return torch.from_numpy(distrib.probs.numpy()).to(x_tensor.device)
+
+    def __call__(self, x_tensor: torch.Tensor) -> torch.Tensor:
+        return self.forward(x_tensor)
 
 class ProbPSENNWrapper(nn.Module):
     def __init__(self, tf_model):
@@ -165,15 +153,17 @@ def load_models(model_names):
         elif name == "Prob_PSENN":
             if True:
                 model = ProbPSENN_VAE.load_model(model_path, "") #Load the model (VAE backbone)
-                model = ProbPSENNWrapper(model).to(device).eval()
+                #model = ProbPSENNWrapper(model).to(device).eval()
+                model = ProbPSENNAdapter(model)
+                print("sartu")
             else:
                 model = ProbPSENN.load_model(model_path, "")     #Load the model (AE backbone)
             print("Model Prob_PSENN loaded")
         elif name == "ProtoVAE":
-            model = model_protovae.ProtoVAE().to(device)
+            model = model_protovae.ProtoVAE().to(device).eval()
             state = torch.load(model_path, map_location=device)
             model.load_state_dict(state)
-            model = ProtoVAEWrapper(model).to(device).eval()
+            #model = ProtoVAEWrapper(model).to(device).eval()
             print("Model ProtoVAE loaded")
             #model.eval()
         else:
@@ -219,6 +209,7 @@ def main():
         params = attack_params.get(attack, {}).copy()
         if attack == "AutoAttack_adv" and args.models[0] == "Prob_PSENN":
             params["version"] = "rand"
+            params["is_tf"] = True
         #params = attack_params.get(attack, {})  # Get attack parameters
         attack_fns.append(partial(attack_fn, **params))
 
@@ -228,10 +219,14 @@ def main():
     random_seed = 0
 
     # download MNIST data
-    protovae = False    
+    mode = "basic"    
+
     if args.models[0] == "ProtoVAE":
-        protovae=True
-    test_loader = get_test_loader(data_folder, batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, protovae=protovae)
+        mode = "norm"
+    elif args.models[0] == "Prob_PSENN":
+        mode = "resize_norm"
+
+    test_loader = get_test_loader(data_folder, batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, mode=mode)
 
     foolbox = [foolbox_attacks.get(attack, False) for attack in args.attacks]
 

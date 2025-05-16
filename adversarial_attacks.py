@@ -348,7 +348,7 @@ def LinfAdamProjectedGradientDescent_attack_foolbox(batch_x, batch_y, model, ste
 
 from autoattack.autoattack import AutoAttack    
 
-def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='standard'):
+def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='standard', is_tf=False):
     """
     Applies AutoAttack to a batch of images.
     Args:
@@ -364,18 +364,24 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='sta
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Explicitly set device to CPU
 
     # Move model and data to CPU if they are not already
-    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
-    batch_x = batch_x.to(device)
-    batch_y = batch_y.to(device)
+    if not is_tf:
+        model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+        batch_x = batch_x.to(device)
+        batch_y = batch_y.to(device)
+    
+    print(f"[AutoAttack_adv] wrapping model: should be adapter or nn.Module, got {type(model)}")
+
+    print(is_tf)
 
     # Initialize AutoAttack
     adversary = AutoAttack(
-        model,
+        model = model,
         norm='Linf',
         eps=epsilon,
         version=version,
-        device=device, # Explicitly set device to CPU
-        verbose=False,
+        is_tf_model=is_tf,
+        device=device, 
+        verbose=False
     )
     
     #     # Increase number of restarts for Square Attack

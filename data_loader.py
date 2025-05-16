@@ -38,16 +38,41 @@ def get_test_loader(data_dir,
                     shuffle=True,
                     num_workers=0,
                     pin_memory=True,
-                    protovae=False):
+                    mode="basic"):
 
-    if protovae == True:
-        transform_protovae = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
+    """
+    mode:
+      - 'basic'      : ToTensor() only → [0,1], 28×28
+      - 'norm'       : ToTensor() + Normalize(0.5,0.5) → [–1,1], 28×28
+      - 'resize_norm': Resize(32×32) + ToTensor() + Normalize(0.5,0.5) → [–1,1], 32×32
+    """
+
+    if mode == 'basic':
+        transform = transforms.Compose([
+            transforms.ToTensor(),  # [0,1], 28×28
         ])
-        dataset = datasets.MNIST(root=data_dir, train=False, download=True, transform=transform_protovae)
+        print("Mode: basic (ToTensor only)")
+
+    elif mode == 'norm':
+        transform = transforms.Compose([
+            transforms.ToTensor(),                         # [0,1], 28×28
+            transforms.Normalize((0.5,), (0.5,)),          # → [–1,1]
+        ])
+        print("Mode: norm (ToTensor + Normalize)")
+
+    elif mode == 'resize_norm':
+        transform = transforms.Compose([
+            transforms.Resize((32, 32)),                   # 28×28 → 32×32
+            transforms.ToTensor(),                         # [0,1]
+            transforms.Normalize((0.5,), (0.5,)),          # → [–1,1]
+        ])
+        print("Mode: resize_norm (Resize + ToTensor + Normalize)")
+
     else:
-        dataset = datasets.MNIST(root=data_dir, train=False, download=True, transform=transforms.ToTensor())
+        raise ValueError(f"Unknown mode '{mode}'. Choose from 'basic', 'norm', 'resize_norm'.")
+
+    dataset = datasets.MNIST(root=data_dir, train=False, download=True, transform=transform)
+
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, 
                                               num_workers=num_workers, pin_memory=pin_memory)
     return data_loader
