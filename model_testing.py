@@ -380,8 +380,6 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
     plt.legend()
     plt.show()
 
-from autoattack import utils_tf2
-
 def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks, attack_names, loss, max_eps, step, foolbox_uses):
     """
     Plots and saves the accuracy of models under multiple adversarial attacks for different epsilon values.
@@ -423,23 +421,19 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
                     #batch_x_attack = batch_x.permute(0, 3, 1, 2)
                     #batch_x = batch_x.detach().cpu().numpy().transpose(0, 2, 3, 1)
                 
-                #if isinstance(model, ProtoVAE):
-                #    pred_y, _ = model.pred_class(batch_x)
                 #if isinstance(model, ProbPSENN) or isinstance(model, ProbPSENN_VAE):
                 #    pred_y = model.get_pred_distrib(batch_x.cpu().numpy(), n_samples=30, reduce_samples=True)# What is used in the eval.py in github
                 #    pred_y = torch.from_numpy(pred_y).to(device)
                 #else:
                 
                 pred_y = model.forward(batch_x)
-                #pred_y = adapter.forward(batch_x)
-                #pred_y = model.get_pred_distrib(batch_x, n_samples=30, reduce_samples=True)
-                #pred_y = torch.from_numpy(pred_y.probs.numpy()).to(device)
+                
+                print("requires_grad:", pred_y.requires_grad, "grad_fn:", pred_y.grad_fn)
+                print(batch_x.min().item(), batch_x.max().item())
                 pred_y_s = torch.softmax(pred_y, dim=1)
 
                 if not foolbox_use:
                     loss_f = partial(loss, model=model, batch_y=batch_y)
-
-                print(f"[AutoAttack_adv] wrapping model: should be adapter or nn.Module, got {type(model)}")
 
                 # Non-adversarial test set accuracy
                 _, max_indices = torch.max(pred_y_s, 1)
@@ -452,13 +446,11 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
                 print(f"pred_y softmax {pred_y_s[0]}")
                 print(f"pred_y max_indices {max_indices}")
                 print(f"pred_y accuracy {results[idm, 0]}")
-                perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=0.1)
-                #perturbed_batch_x = attack(batch_x, batch_y, model=adapter, epsilon=0.1)
-                #perturbed_batch_x = (perturbed_batch_x - 0.5) / 0.5
+                perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=0.001)
+
+                print("without normalize: ", perturbed_batch_x.min().item(), perturbed_batch_x.max().item())
+                
                 pred_y_adv_01 = model.forward(perturbed_batch_x)
-                #pred_y_adv_01 = adapter.forward(perturbed_batch_x)
-                #pred_y_adv_01 = model.get_pred_distrib(perturbed_batch_x, n_samples=30, reduce_samples=True)
-                #pred_y_adv_01 = torch.from_numpy(pred_y_adv_01.probs.numpy()).to(device)
                 _, max_indices_adv_01 = torch.max(pred_y_adv_01, 1)
                 pred_y_s_adv_01= torch.softmax(pred_y_adv_01, dim=1)
                 _, max_indices_adv_01_s = torch.max(pred_y_s_adv_01, 1)
@@ -470,12 +462,11 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
                 print(f"pred_y_adv_01_s max indices {max_indices_adv_01_s}")
 
                 perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=0.6)
-                #perturbed_batch_x = attack(batch_x, batch_y, model=adapter, epsilon=0.6)
-                #perturbed_batch_x = (perturbed_batch_x - 0.5) / 0.5
+    
+                print("without normalize: ", perturbed_batch_x.min().item(), perturbed_batch_x.max().item())
+                
                 pred_y_adv_06 = model.forward(perturbed_batch_x)
-                #pred_y_adv_06 = adapter.forward(perturbed_batch_x)
-                #pred_y_adv_06 = model.get_pred_distrib(batch_x, n_samples=30, reduce_samples=True)
-                #pred_y_adv_06 = torch.from_numpy(pred_y_adv_06.probs.numpy()).to(device)
+                
                 _, max_indices_adv_06 = torch.max(pred_y_adv_06, 1)
                 pred_y_s_adv_06= torch.softmax(pred_y_adv_06, dim=1)
                 _, max_indices_adv_06_s = torch.max(pred_y_s_adv_06, 1)
@@ -498,21 +489,13 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
 
                     # Generate adversarial examples
                     if foolbox_use:
-                        perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)
-                        if isinstance(model, ProtoVAE) or isinstance(model, ProbPSENN) or isinstance(model, ProbPSENN_VAE):
-                            perturbed_batch_x = (perturbed_batch_x - 0.5) / 0.5    
+                        perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)    
                     else:
                         adv_attack = partial(attack, loss_f=loss_f, eps=eps)
                         perturbed_batch_x = adv_attack(batch_x)
 
                     # Get predictions for adversarial examples
                     
-                    #if isinstance(model, ProtoVAE):
-                    #    pred_y_adv, _ = model.pred_class(perturbed_batch_x)
-                    #if isinstance(model, ProbPSENN_VAE) or isinstance(model, ProbPSENN):
-                    #    pred_y_adv = model.get_pred_distrib(perturbed_batch_x.cpu().numpy(), n_samples=30, reduce_samples=True)# What is used in the eval.py in github
-                    #    pred_y_adv = torch.from_numpy(pred_y_adv).to(device)
-                    #else:
                     pred_y_adv = model.forward(perturbed_batch_x)
 
                     # Adversarial test accuracy

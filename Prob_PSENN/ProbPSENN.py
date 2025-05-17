@@ -1,5 +1,8 @@
 import numpy as np
 import tensorflow as tf
+import torch
+import torch.nn.functional as F
+from types import SimpleNamespace
 #from tensorflow.keras import layers, losses, Model
 import tensorflow_probability as tfp
 import joblib
@@ -517,15 +520,76 @@ class ProbPSENN():
 
         return final_loss, loss_dict
 
-
-
 class ProbPSENN_VAE(ProbPSENN):
     def __init__(self, encoder, decoder, n_prototypes, dim_z, n_classes, proto_prior, distrib_type,
                  prototype_distrib=None, W_classifier=None):
         #Initialize as in Parent Class
         super().__init__(encoder, decoder, n_prototypes, dim_z, n_classes, proto_prior, distrib_type,
                  prototype_distrib, W_classifier)
+    
+    #SUM
+    def get_logits_loss_grad_xent(self, x, y):
+
+        logits = self.forward(x)  # Your forward method must return logits
+        loss = F.cross_entropy(logits, y)
+
+        grad = torch.autograd.grad(loss, x, retain_graph=False, create_graph=False)[0]
+
+        return logits.detach(), loss.detach(), grad.detach()
+    
+    #SUM
+    def predict(self, x_data_):
         
+        if isinstance(x_data_, torch.Tensor):
+            x_data_ = x_data_.detach().cpu().numpy()  # Convert to NumPy
+            x_data_ = np.squeeze(x_data_, axis=1)     # (N, 32, 32) — remove channel
+            x_data_ = tf.convert_to_tensor(x_data_, dtype=tf.float32)  # Convert to TF tensor
+        
+        proto_modes = tf.expand_dims(self.mode_prototypes(),axis=0)
+
+        #encoded_data = self.encode_data(x_data_)
+        encoded_data = self.encoder(x_data_)
+        mean, logvar = tf.split(encoded_data, num_or_size_splits=2, axis=1)
+
+        prototype_distances = self.compute_distance_vector_from_samples(mean, proto_modes)
+        logits_, class_probs_ = self.classify_distances(prototype_distances)
+        pred_distrib = self.prepare_output_distrib(logits_, class_probs_, reduce_samples=True)
+        
+        probs = pred_distrib.probs.numpy()  # Convert to NumPy
+        probs = torch.tensor(probs, device='cuda' if torch.cuda.is_available() else 'cpu', requires_grad=True)
+
+        logits = torch.log(probs + 1e-12)
+        logits = logits + 0.0 * x_data_.numpy().sum() 
+        return logits
+        #return pred_distrib.probs
+    
+    #SUM
+    def forward(self, x_data_):
+        
+        if isinstance(x_data_, torch.Tensor):
+            x_data_ = x_data_.detach().cpu().numpy()  # Convert to NumPy
+            x_data_ = np.squeeze(x_data_, axis=1)     # (N, 32, 32) — remove channel
+            x_data_ = tf.convert_to_tensor(x_data_, dtype=tf.float32)  # Convert to TF tensor
+        
+        proto_modes = tf.expand_dims(self.mode_prototypes(),axis=0)
+
+        #encoded_data = self.encode_data(x_data_)
+        encoded_data = self.encoder(x_data_)
+        mean, logvar = tf.split(encoded_data, num_or_size_splits=2, axis=1)
+
+        prototype_distances = self.compute_distance_vector_from_samples(mean, proto_modes)
+        logits_, class_probs_ = self.classify_distances(prototype_distances)
+        pred_distrib = self.prepare_output_distrib(logits_, class_probs_, reduce_samples=True)
+        
+        probs = pred_distrib.probs.numpy()  # Convert to NumPy
+        probs = torch.tensor(probs, device='cuda' if torch.cuda.is_available() else 'cpu', requires_grad=True)
+
+        logits = torch.log(probs + 1e-12)
+        logits = logits + 0.0 * x_data_.numpy().sum() 
+        return logits
+        
+        #return pred_distrib.probs
+    
     def reparameterize(self, mean, logvar):
         eps = tf.random.normal(shape=mean.shape)
         return eps * tf.exp(logvar * 0.5) + mean
@@ -554,6 +618,7 @@ class ProbPSENN_VAE(ProbPSENN):
 
         logits_, class_probs_ = self.classify_distances(prototype_distances)
         pred_distrib = self.prepare_output_distrib(logits_, class_probs_, reduce_samples)
+        
         return pred_distrib
     
 
@@ -568,8 +633,7 @@ class ProbPSENN_VAE(ProbPSENN):
         prototype_distances = self.compute_distance_vector_from_samples(mean, proto_modes)
         logits_, class_probs_ = self.classify_distances(prototype_distances)
         pred_distrib = self.prepare_output_distrib(logits_, class_probs_, reduce_samples=True)
-        return pred_distrib
-        
+        return pred_distrib     
 
     def train_step_reconstruction(self, x_data, optimizer, loss_weights={"rec": 1.0, "kl": 0.05}):
         assert self.encoder.trainable, "The encoder is in non-trainable mode"

@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import tensorflow as tf
+import torch.nn.functional as F
+from torch.autograd import Function
 from functools import partial
 from model_testing import adversarial_attacks_eps_plot_test
 from data_loader import *
@@ -18,6 +20,9 @@ from SENN.models.aggregators    import SumAggregator
 from Prob_PSENN.ProbPSENN import ProbPSENN, ProbPSENN_VAE
 from ProtoVAE import model as model_protovae
 from autoattack import utils_tf2
+import tf2onnx
+import onnx
+from onnx2pytorch import ConvertModel
 
 paths = {"B30": "saved_model/mnist_model/mnist_cae_balanced_clstsep_1500_0.002_250_True_0.0_20_1_1_1_1.0_0.0_30_4_32_1/mnist_cae00750.pth",
          "S30": "saved_model/mnist_model/mnist_cae_standard_default_1500_0.002_250_False_0.5_20_1_1_1_0.8_0.2_30_4_32_1/mnist_cae00750.pth",
@@ -65,16 +70,13 @@ foolbox_attacks = {
     "AutoAttack_adv": True,
 }
 
-class ProbPSENNAdapter(utils_tf2.ModelAdapter):
-
-    def _ModelAdapter__check_channel_ordering(self):
-        return 'channels_last'
+class ProbPSENNAdapter(nn.Module):
 
     def __init__(self, tf_model):
-        super().__init__(tf_model)
+        super().__init__()
         self.tf_model = tf_model
 
-    def forward(self, x_tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, x_tensor: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         # Convert PyTorch tensor to NumPy array (float32)
         x_np = x_tensor.detach().cpu().numpy()
         #x_np = x_tensor.cpu().permute(0,2,3,1).numpy()
@@ -93,23 +95,18 @@ class ProbPSENNWrapper(nn.Module):
         super().__init__()
         self.tf_model = tf_model
 
-    def forward(self, x):
-        # Resize in PyTorch (differentiable)
-        x_resized = torch.nn.functional.interpolate(
-            x, size=(32, 32), mode='bilinear', align_corners=False
-        )  # [B, 1, 32, 32]
-
+    def forward(self, x, *args, **kwargs):
         # Detach and use TF model (non-differentiable)
         with torch.no_grad():
-            x_np = x_resized.permute(0, 2, 3, 1).cpu().numpy()  # [B, 32, 32, 1]
+            x_np = x.permute(0, 2, 3, 1).cpu().numpy()  # [B, 32, 32, 1]
             pred_dist = self.tf_model.get_pred_distrib(x_np, n_samples=30, reduce_samples=True)
             probs_np = pred_dist.probs.numpy()
 
         # Reattach to computation graph
         probs = torch.tensor(probs_np, device=x.device, requires_grad=True)
         logits = torch.log(probs + 1e-12)
-        # Trick AutoAttack into "seeing" gradients (passthrough)
-        logits = logits + 0.0 * x.sum()  # Forces dependency on `x`
+        #Trick AutoAttack into "seeing" gradients (passthrough)
+        logits = logits + 0.0 * x.sum()  
         return logits
 
 class ProtoVAEWrapper(nn.Module):
@@ -153,9 +150,10 @@ def load_models(model_names):
         elif name == "Prob_PSENN":
             if True:
                 model = ProbPSENN_VAE.load_model(model_path, "") #Load the model (VAE backbone)
-                #model = ProbPSENNWrapper(model).to(device).eval()
-                model = ProbPSENNAdapter(model)
-                print("sartu")
+                # onnx_model, _ = tf2onnx.convert.from_keras(model)
+                # pytorch_model = ConvertModel(onnx_model)
+                model = ProbPSENNWrapper(model).to(device).eval()
+                #model = ProbPSENNAdapter(model).to(device).eval()
             else:
                 model = ProbPSENN.load_model(model_path, "")     #Load the model (AE backbone)
             print("Model Prob_PSENN loaded")
@@ -163,9 +161,8 @@ def load_models(model_names):
             model = model_protovae.ProtoVAE().to(device).eval()
             state = torch.load(model_path, map_location=device)
             model.load_state_dict(state)
-            #model = ProtoVAEWrapper(model).to(device).eval()
+            model = ProtoVAEWrapper(model).to(device).eval()
             print("Model ProtoVAE loaded")
-            #model.eval()
         else:
             model = torch.load(model_path, map_location=device)
             model.eval()
@@ -209,7 +206,7 @@ def main():
         params = attack_params.get(attack, {}).copy()
         if attack == "AutoAttack_adv" and args.models[0] == "Prob_PSENN":
             params["version"] = "rand"
-            params["is_tf"] = True
+            #params["is_tf"] = True
         #params = attack_params.get(attack, {})  # Get attack parameters
         attack_fns.append(partial(attack_fn, **params))
 

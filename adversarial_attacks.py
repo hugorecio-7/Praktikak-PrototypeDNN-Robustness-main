@@ -346,7 +346,8 @@ def LinfAdamProjectedGradientDescent_attack_foolbox(batch_x, batch_y, model, ste
     
     return  clipped
 
-from autoattack.autoattack import AutoAttack    
+from autoattack.autoattack import AutoAttack
+from autoattack import utils_tf2    
 
 def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='standard', is_tf=False):
     """
@@ -368,10 +369,9 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='sta
         model = model.to(device).eval() # Ensure model is on CPU and in eval mode
         batch_x = batch_x.to(device)
         batch_y = batch_y.to(device)
-    
-    print(f"[AutoAttack_adv] wrapping model: should be adapter or nn.Module, got {type(model)}")
-
-    print(is_tf)
+    # else:
+        # model = utils_tf2.ModelAdapter(model)
+        
 
     # Initialize AutoAttack
     adversary = AutoAttack(
@@ -383,15 +383,6 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='sta
         device=device, 
         verbose=False
     )
-    
-    #     # Increase number of restarts for Square Attack
-    # if hasattr(adversary, "square_attack"):
-    #     adversary.square_attack.n_queries = 20000  # Increase number of queries
-    #     adversary.square_attack.n_restarts = 10  # Increase restarts
-
-    # # Increase steps for APGD
-    # if hasattr(adversary, "apgd_ce"):
-    #     adversary.apgd_ce.n_iter = steps  # Increase number of iterations
 
     try:
         # Run the attack
