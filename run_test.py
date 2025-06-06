@@ -49,18 +49,20 @@ config_paths = {
 }
 
 attack_params = {
-    "PGDLInf_attack": {"iters": 2, "alpha": 1, "random_start": True},
-    "LinfDeepFool_attack": {"steps": 100, "candidates": 3, "overshoot": 1.02},
+    "PGDLInf_attack": {"iters": 80, "alpha": 0.01, "random_start": True},
+    "FSGM_attack" : {},
+    "LinfDeepFool_attack": {"steps": 50, "candidates": 10, "overshoot": 0.02},
     "LinfAdditiveUniformNoise_attack": {}, 
     "LinfBasicIterative_attack": {"steps": 10, "random_start": True},
-    "LinfFMNA_attack": {"steps": 100, "max_stepsize": 2, "min_stepsize": 1e-3, "gamma": 0.1},
+    "LinfFMNA_attack": {"steps": 100, "max_stepsize": 0.8, "min_stepsize": 1e-4, "gamma": 0.1},
     "LinfMomentumIterativeFastGradient_attack": {"steps": 10},
-    "LinfAdamProjectedGradientDescent_attack_foolbox": {"steps": 10, "random_start": True},
+    "LinfAdamProjectedGradientDescent_attack": {"steps": 20, "random_start": True},
     "AutoAttack_adv": {"version": "standard", "is_tf": False},
 }
 
 foolbox_attacks = {
     "PGDLInf_attack": False,
+    "FSGM_attack" : False,
     "LinfDeepFool_attack": True,
     "LinfAdditiveUniformNoise_attack": True,
     "LinfBasicIterative_attack": True,
@@ -116,6 +118,7 @@ class ProtoVAEWrapper(nn.Module):
 
     def forward(self, x):
         logits, _ = self.base.pred_class(x)
+        #logits, _, _, _ = self.base(x, is_train=False)
         return logits
 
 def instantiate_senn_from_config(config_path, device):
@@ -207,7 +210,6 @@ def main():
         if attack == "AutoAttack_adv" and args.models[0] == "Prob_PSENN":
             params["version"] = "rand"
             #params["is_tf"] = True
-        #params = attack_params.get(attack, {})  # Get attack parameters
         attack_fns.append(partial(attack_fn, **params))
 
     data_folder = 'data'

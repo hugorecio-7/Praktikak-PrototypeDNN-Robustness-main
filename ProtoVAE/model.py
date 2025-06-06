@@ -14,7 +14,6 @@ class View(nn.Module):
     def forward(self, x):
         return x.view(*self.shape)
 
-    
 class ProtoVAE(nn.Module):
 
     def __init__(self):
@@ -295,10 +294,24 @@ class ProtoVAE(nn.Module):
         mu = conv_features[:,:latent]
         logVar = conv_features[:,latent:].clamp(np.log(1e-8), -np.log(1e-8))
         z = self.reparameterize(mu, logVar)
-        if(~is_train):
+        if(not is_train):
             z = mu
 
         sim_scores = self.calc_sim_scores(z)
+
+        # # Only compute kl_loss if `y` is provided
+        # if y is not None:
+        # # Check that `prototype_class_identity` is 2D
+        #     assert self.prototype_class_identity.dim() == 2, \
+        #         "prototype_class_identity must be 2D (num_prototypes × num_classes)"
+        
+        #     prototypes_of_correct_class = torch.t(self.prototype_class_identity[:, y]).to(device)
+        #     index_prototypes_of_correct_class = (prototypes_of_correct_class == 1).nonzero(as_tuple=True)[1]
+        #     index_prototypes_of_correct_class = index_prototypes_of_correct_class.view(x.shape[0], self.num_prototypes_per_class)
+        #     kl_loss = self.kl_divergence_nearest(mu, logVar, index_prototypes_of_correct_class, sim_scores)
+        # else:
+        #     # Handle test case: set kl_loss to 0 or skip
+        #     kl_loss = torch.tensor(0.0).to(device)  # Placeholder value
 
         prototypes_of_correct_class = torch.t(self.prototype_class_identity[:, y]).to(device)
 
