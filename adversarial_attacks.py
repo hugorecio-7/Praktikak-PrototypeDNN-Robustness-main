@@ -14,7 +14,8 @@ def FSGM_attack(batch_x, loss_f, eps, norm=False):
         batch_x (torch.Tensor): The input batch of images.
         loss_f (callable): The loss function used to compute the loss.
         eps (float): The magnitude of the perturbation.
-
+        norm (bool): If True, the perturbation is clamped to [-1, 1]. If False, it is clamped to [0, 1].
+        
     Returns:
         torch.Tensor: The perturbed batch of images.
 
@@ -50,6 +51,7 @@ def PGDLInf_attack(batch_x, loss_f, iters, eps, alpha, random_start, norm=False)
         eps (float): The maximum perturbation allowed for each pixel.
         alpha (float): The step size for each iteration of the attack.
         random_start (bool): Whether to start the attack from a random point.
+        norm (bool): If True, the perturbation is clamped to [-1, 1]. If False, it is clamped to [0, 1].
 
     Returns:
         torch.Tensor: The perturbed batch of input images.
@@ -155,9 +157,11 @@ def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, candidates=10, oversh
 
     Args:
         batch_x (torch.Tensor): Batch of input images.
-        model (torch.nn.Module): PyTorch model to attack.
         batch_y (torch.Tensor): True labels of the input batch.
+        model (torch.nn.Module): PyTorch model to attack.
         steps (int): Maximum number of iterations for the attack.
+        candidates (int): Number of candidates for the DeepFool attack.
+        overshoot (float): Overshoot factor for the perturbation.
         epsilon (float): The epsilon value to scale the perturbations.
 
     Returns:
@@ -195,8 +199,8 @@ def LinfAdditiveUniformNoise_attack(batch_x, batch_y, model, epsilon=0.3):
 
     Args:
         batch_x (torch.Tensor): Batch of input images.
-        model (torch.nn.Module): PyTorch model to attack.
         batch_y (torch.Tensor): True labels of the input batch.
+        model (torch.nn.Module): PyTorch model to attack.
         epsilon (float): The epsilon value to scale the perturbations.
 
     Returns:
@@ -232,10 +236,11 @@ def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3, ra
 
     Args:
         batch_x (torch.Tensor): Batch of input images.
-        model (torch.nn.Module): PyTorch model to attack.
         batch_y (torch.Tensor): True labels of the input batch.
+        model (torch.nn.Module): PyTorch model to attack.
         steps (int): Maximum number of iterations for the attack.
         epsilon (float): The epsilon value to scale the perturbations.
+        random_start (bool): Whether to start the attack from a random point.
 
     Returns:
         torch.Tensor: Perturbed images.
@@ -270,9 +275,12 @@ def LinfFMNA_attack(batch_x, batch_y, model, steps=100, max_stepsize=2, min_step
 
     Args:
         batch_x (torch.Tensor): Batch of input images.
-        model (torch.nn.Module): PyTorch model to attack.
         batch_y (torch.Tensor): True labels of the input batch.
+        model (torch.nn.Module): PyTorch model to attack.
         steps (int): Maximum number of iterations for the attack.
+        max_stepsize (float): Maximum step size for the attack.
+        min_stepsize (float): Minimum step size for the attack.
+        gamma (float): Scaling factor for the perturbations.
         epsilon (float): The epsilon value to scale the perturbations.
 
     Returns:
@@ -304,12 +312,12 @@ def LinfFMNA_attack(batch_x, batch_y, model, steps=100, max_stepsize=2, min_step
 
 def LinfMomentumIterativeFastGradient_attack(batch_x, batch_y, model, steps=100, epsilon=0.3):
     """
-    Applies the LinfBaseGradientDescent attack from Foolbox to a batch of images.
+    Applies the LinfMomentumIterativeFastGradient attack from Foolbox to a batch of images.
 
     Args:
         batch_x (torch.Tensor): Batch of input images.
-        model (torch.nn.Module): PyTorch model to attack.
         batch_y (torch.Tensor): True labels of the input batch.
+        model (torch.nn.Module): PyTorch model to attack.
         steps (int): Maximum number of iterations for the attack.
         epsilon (float): The epsilon value to scale the perturbations.
 
@@ -342,14 +350,15 @@ def LinfMomentumIterativeFastGradient_attack(batch_x, batch_y, model, steps=100,
 
 def LinfAdamProjectedGradientDescent_attack(batch_x, batch_y, model, steps=100, epsilon=0.3, random_start=True):
     """
-    Applies the LinfBaseGradientDescent attack from Foolbox to a batch of images.
+    Applies the LinfAdamProjectedGradientDescent attack from Foolbox to a batch of images.
 
     Args:
         batch_x (torch.Tensor): Batch of input images.
-        model (torch.nn.Module): PyTorch model to attack.
         batch_y (torch.Tensor): True labels of the input batch.
+        model (torch.nn.Module): PyTorch model to attack.
         steps (int): Maximum number of iterations for the attack.
         epsilon (float): The epsilon value to scale the perturbations.
+        random_start (bool): Whether to start the attack from a random point.
 
     Returns:
         torch.Tensor: Perturbed images.
@@ -378,6 +387,7 @@ def LinfAdamProjectedGradientDescent_attack(batch_x, batch_y, model, steps=100, 
     
     return  clipped 
 
+# RescaledModel to adapt the model input range from [0, 1] to [-1, 1] 
 class RescaledModel(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
@@ -388,15 +398,17 @@ class RescaledModel(torch.nn.Module):
         x = x * 2 - 1
         return self.model(x)
 
-def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='standard', is_tf=False):
+def AutoAttack_adv(batch_x, batch_y, model, epsilon=0.03, version='standard', is_tf=False):
     """
     Applies AutoAttack to a batch of images.
     Args:
         batch_x (torch.Tensor): Input images (shape [B, C, H, W]).
         batch_y (torch.Tensor): True labels.
         model (torch.nn.Module): PyTorch model (outputs logits).
-        steps (int): Max iterations for APGD attacks.
         epsilon (float): Perturbation budget (Linf norm).
+        version (str): Version of AutoAttack to use ('standard', 'random', etc.).
+        is_tf (bool): If True, indicates the model is a TensorFlow model (for compatibility with utils_tf2).
+        
     Returns:
         torch.Tensor: Adversarial examples.
     """
@@ -408,8 +420,8 @@ def AutoAttack_adv(batch_x, batch_y, model, steps=50, epsilon=0.03, version='sta
         model = model.to(device).eval() # Ensure model is on CPU and in eval mode
         batch_x = batch_x.to(device)
         batch_y = batch_y.to(device)
-    # else:
-        # model = utils_tf2.ModelAdapter(model)
+    else:
+        model = utils_tf2.ModelAdapter(model)
         
     if model.__class__.__name__ in ['ProbPSENN_VAE', 'ProbPSENN', 'ProtoVAEWrapper']:
         # Rescale model to expect inputs in [-1, 1] range

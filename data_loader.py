@@ -42,9 +42,9 @@ def get_test_loader(data_dir,
 
     """
     mode:
-      - 'basic'      : ToTensor() only → [0,1], 28×28
-      - 'norm'       : ToTensor() + Normalize(0.5,0.5) → [–1,1], 28×28
-      - 'resize_norm': Resize(32×32) + ToTensor() + Normalize(0.5,0.5) → [–1,1], 32×32
+      - 'basic'      : ToTensor() only → [0,1], 28x28
+      - 'norm'       : ToTensor() + Normalize(0.5,0.5) → [-1,1], 28x28
+      - 'resize_norm': Resize(32x32) + ToTensor() + Normalize(0.5,0.5) → [-1,1], 32x32
     """
 
     if mode == 'basic':
@@ -73,6 +73,6 @@ def get_test_loader(data_dir,
 
     dataset = datasets.MNIST(root=data_dir, train=False, download=True, transform=transform)
 
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, 
-                                              num_workers=num_workers, pin_memory=pin_memory)
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=pin_memory)
+    
     return data_loader

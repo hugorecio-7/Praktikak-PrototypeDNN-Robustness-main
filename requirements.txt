@@ -10,5 +10,3 @@ foolbox
 git+https://github.com/fra31/auto-attack.git
 tensorflow==2.10
 tensorflow-probability==0.15
-tf2onnx
-onnx2pytorch

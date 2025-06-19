@@ -317,6 +317,7 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
         loss (function): The loss function used for the attack.
         max_eps (int or float): The maximum epsilon value for the attack.
         step (float, optional): The step size for epsilon values. Defaults to 0.025.
+        foolbox_use (bool, optional): Whether the attack is from Foolbox or AutoAttack.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Define the device
     dim = max_eps+1 if isinstance(max_eps, int) else int(max_eps/step) + 1
@@ -328,14 +329,21 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
         batch_x = batch[0]
         batch_y = batch[1]
         batch_x = batch_x.to(device)
-        #batch_x.requires_grad = True
         batch_y = batch_y.to(device)
 
         for idm, model in enumerate(models):
+            
+            # Check if the model requires batch normalization inside the attack
+            if model.__class__.__name__ in ['ProbPSENN_VAE', 'ProbPSENN', 'ProtoVAEWrapper']:
+                norm=True
+            else:
+                norm=False
+
             pred_y = model.forward(batch_x)
             pred_y = softmax(pred_y)
             
-            loss_f = partial(loss, model=model, batch_y=batch_y)
+            if not foolbox_use:
+                loss_f = partial(loss, model=model, batch_y=batch_y)
 
             # Non-adversarial test set accuracy
             conf_y, max_indices = torch.max(pred_y,1)
@@ -355,7 +363,7 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
                 if foolbox_use:
                     perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)
                 else:
-                    adv_attack = partial(attack, loss_f=loss_f, eps=eps)
+                    adv_attack = partial(attack, loss_f=loss_f, eps=eps, norm=norm)
                     perturbed_batch_x = adv_attack(batch_x)
 
                 # Get the predictions for the adversarial examples
@@ -404,39 +412,26 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
 
     for attack, attack_name, foolbox_use in zip(attacks, attack_names, foolbox_uses):
         results = np.zeros((len(models), dim))
-        # printed = False ####################
+        printed = False ####################
 
         for batch in test_loader:
             batch_x, batch_y = batch
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
 
-            # if printed:
-            #      break
+            if printed:
+                break
 
             for idm, model in enumerate(models):
 
+                # Check if the model requires batch normalization inside the attack
                 if model.__class__.__name__ in ['ProbPSENN_VAE', 'ProbPSENN', 'ProtoVAEWrapper']:
                     norm=True
                 else:
                     norm=False
-                    
-                #if isinstance(model, ProbPSENN_VAE) or isinstance(model, ProbPSENN):
-                    #model = model.to(device)
-                    #adapter = ProbPSENNAdapter(model)
-                    #print("Adapted")
-                    #batch_x_attack = batch_x.permute(0, 3, 1, 2)
-                    #batch_x = batch_x.detach().cpu().numpy().transpose(0, 2, 3, 1)
-                
-                #if isinstance(model, ProbPSENN) or isinstance(model, ProbPSENN_VAE):
-                #    pred_y = model.get_pred_distrib(batch_x.cpu().numpy(), n_samples=30, reduce_samples=True)# What is used in the eval.py in github
-                #    pred_y = torch.from_numpy(pred_y).to(device)
-                #else:
                 
                 pred_y = model.forward(batch_x)
                 
-                # print("requires_grad:", pred_y.requires_grad, "grad_fn:", pred_y.grad_fn)
-                # print(batch_x.min().item(), batch_x.max().item())
                 pred_y_s = torch.softmax(pred_y, dim=1)
 
                 if not foolbox_use:
@@ -447,90 +442,92 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
                 n = max_indices.size(0)
                 results[idm, 0] += (max_indices == batch_y).float().sum().item() / n
                 
-                # # #Printiing###################
+                # #Printiing###################
                 # print(f"pred_y shape {pred_y.shape}")
                 # print(f"pred_y logits {pred_y[0]}")
                 # print(f"pred_y softmax {pred_y_s[0]}")
                 # print(f"pred_y max_indices {max_indices}")
-                # print(f"pred_y accuracy {results[idm, 0]}")
+                print(f"pred_y accuracy {results[idm, 0]}")
                 
-                # if foolbox_use:
-                #     perturbed_batch_x_01 = attack(batch_x, batch_y, model=model, epsilon=0.1)    
-                # else:
-                #     adv_attack_01 = partial(attack, loss_f=loss_f, eps=0.1, norm=norm)
-                #     perturbed_batch_x_01 = adv_attack_01(batch_x)
+                if foolbox_use:
+                    perturbed_batch_x_01 = attack(batch_x, batch_y, model=model, epsilon=0.1)    
+                else:
+                    adv_attack_01 = partial(attack, loss_f=loss_f, eps=0.1, norm=norm)
+                    perturbed_batch_x_01 = adv_attack_01(batch_x)
                 
-                # print("without normalize: ", perturbed_batch_x_01.min().item(), perturbed_batch_x_01.max().item())
+                print("without normalize: ", perturbed_batch_x_01.min().item(), perturbed_batch_x_01.max().item())
                 
-                # pred_y_adv_01 = model.forward(perturbed_batch_x_01)
-                # _, max_indices_adv_01 = torch.max(pred_y_adv_01, 1)
-                # pred_y_s_adv_01= torch.softmax(pred_y_adv_01, dim=1)
-                # _, max_indices_adv_01_s = torch.max(pred_y_s_adv_01, 1)
+                pred_y_adv_01 = model.forward(perturbed_batch_x_01)
+                _, max_indices_adv_01 = torch.max(pred_y_adv_01, 1)
+                pred_y_s_adv_01= torch.softmax(pred_y_adv_01, dim=1)
+                _, max_indices_adv_01_s = torch.max(pred_y_s_adv_01, 1)
 
                 # print(f"pred_y_adv_01 shape {pred_y_adv_01.shape}")
                 # print(f"pred_y_adv_01 logits {pred_y_adv_01[0]}")
                 # print(f"pred_y_adv_01 softmax {pred_y_s_adv_01[0]}")
                 # print(f"pred_y_adv_01 max_indices {max_indices_adv_01}")
                 # print(f"pred_y_adv_01_s max indices {max_indices_adv_01_s}")
+                print(f"pred_y_adv_01 accuracy {(max_indices_adv_01 == batch_y).float().sum().item() / n}")
 
-                # if foolbox_use:
-                #     perturbed_batch_x_06 = attack(batch_x, batch_y, model=model, epsilon=0.6)    
-                # else:
-                #     adv_attack_06 = partial(attack, loss_f=loss_f, eps=0.6, norm=norm)
-                #     perturbed_batch_x_06 = adv_attack_06(batch_x)
+                if foolbox_use:
+                    perturbed_batch_x_06 = attack(batch_x, batch_y, model=model, epsilon=0.6)    
+                else:
+                    adv_attack_06 = partial(attack, loss_f=loss_f, eps=0.6, norm=norm)
+                    perturbed_batch_x_06 = adv_attack_06(batch_x)
     
-                # print("without normalize: ", perturbed_batch_x_06.min().item(), perturbed_batch_x_06.max().item())
+                print("without normalize: ", perturbed_batch_x_06.min().item(), perturbed_batch_x_06.max().item())
                 
-                # pred_y_adv_06 = model.forward(perturbed_batch_x_06)
+                pred_y_adv_06 = model.forward(perturbed_batch_x_06)
                 
-                # _, max_indices_adv_06 = torch.max(pred_y_adv_06, 1)
-                # pred_y_s_adv_06= torch.softmax(pred_y_adv_06, dim=1)
-                # _, max_indices_adv_06_s = torch.max(pred_y_s_adv_06, 1)
+                _, max_indices_adv_06 = torch.max(pred_y_adv_06, 1)
+                pred_y_s_adv_06= torch.softmax(pred_y_adv_06, dim=1)
+                _, max_indices_adv_06_s = torch.max(pred_y_s_adv_06, 1)
 
                 # print(f"pred_y_adv_06 shape {pred_y_adv_06.shape}")
                 # print(f"pred_y_adv_06 logits {pred_y_adv_06[0]}")
                 # print(f"pred_y_adv_06 softmax {pred_y_s_adv_06[0]}")
                 # print(f"pred_y_adv_06 max_indices {max_indices_adv_06}")
                 # print(f"pred_y_adv_06_s max indices {max_indices_adv_06_s}")
+                print(f"pred_y_adv_06 accuracy {(max_indices_adv_06 == batch_y).float().sum().item() / n}")
 
-                # idx = random.randint(0, batch_x.size(0) - 1)
+                idx = random.randint(0, batch_x.size(0) - 1)
                 
-                # original = batch_x[7].detach().cpu()
-                # adv_01 = perturbed_batch_x_01[7].detach().cpu()
-                # adv_06 = perturbed_batch_x_06[7].detach().cpu()
+                original = batch_x[7].detach().cpu()
+                adv_01 = perturbed_batch_x_01[7].detach().cpu()
+                adv_06 = perturbed_batch_x_06[7].detach().cpu()
                 
                 # original = denorm(original).clamp(0, 1)
                 # adv_01 = denorm(adv_01).clamp(0, 1)
                 # adv_06 = denorm(adv_06).clamp(0, 1)
                 
-                # original_np = original.permute(1, 2, 0).numpy()
-                # adv_01_np = adv_01.permute(1, 2, 0).numpy()
-                # adv_06_np = adv_06.permute(1, 2, 0).numpy()
+                original_np = original.permute(1, 2, 0).numpy()
+                adv_01_np = adv_01.permute(1, 2, 0).numpy()
+                adv_06_np = adv_06.permute(1, 2, 0).numpy()
                 
-                # # Plot and save the images
-                # fig, axs = plt.subplots(1, 3, figsize=(12, 4))
-                # axs[0].imshow(original_np)
-                # axs[0].set_title("Original")
-                # axs[0].axis('off')
+                # Plot and save the images
+                fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+                axs[0].imshow(original_np)
+                axs[0].set_title("Original")
+                axs[0].axis('off')
 
-                # axs[1].imshow(adv_01_np)
-                # axs[1].set_title("ε = 0.1")
-                # axs[1].axis('off')
+                axs[1].imshow(adv_01_np)
+                axs[1].set_title("ε = 0.1")
+                axs[1].axis('off')
 
-                # axs[2].imshow(adv_06_np)
-                # axs[2].set_title("ε = 0.6")
-                # axs[2].axis('off')
+                axs[2].imshow(adv_06_np)
+                axs[2].set_title("ε = 0.6")
+                axs[2].axis('off')
 
-                # plt.tight_layout()
+                plt.tight_layout()
 
-                # # Save path
-                # jpg_path = f"results/Test_Images/ProtoVAE_{attack_name}_eps(0.0_0.1_0.6)_image_{idx}.jpg"
-                # plt.savefig(jpg_path)
-                # plt.close()
-                # print(f"Saved image comparison to {jpg_path}")
+                # Save path
+                jpg_path = f"results/Test_Images/ProtoVAE_{attack_name}_eps(0.0_0.1_0.6)_image_{idx}.jpg"
+                plt.savefig(jpg_path)
+                plt.close()
+                print(f"Saved image comparison to {jpg_path}")
                 
-                # printed = True
-                # break
+                printed = True
+                break
 
                 # Adversarial test set accuracy for different epsilon values
                 maxx = int(round(max_eps / step)) if isinstance(max_eps, float) else max_eps
@@ -556,11 +553,12 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
         
         results /= len(test_loader)
 
+        # Save accuracy results and plot for each model and attack
         for idm, model_name in enumerate(model_names):
             model_result = results[idm]
             
             ############
-            # break
+            break
 
             # Save results to CSV
             csv_path = f"results/Accuracy/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_results.csv"
@@ -826,10 +824,11 @@ def plot_prototype_projection_with_data(reduced_prototypes, prototype_imgs, redu
     
     plt.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
-        
+
+# Function to visualize adversarial examples 
 def plot_adversarial_examples(model, model_name, test_loader, loss, attack, attack_name, num_examples, eps=0.3, foolbox_use=True):
     """
-    Visualize real images with their respective after-attack images.
+    Visualize real images with their respective after-attack images, images are selected randomly.
 
     Args:
         model (torch.nn.Module): The trained model.
@@ -839,7 +838,7 @@ def plot_adversarial_examples(model, model_name, test_loader, loss, attack, atta
         attack (callable): The attack function used to generate adversarial examples.
         num_examples (int): Number of examples to display.
         eps (float): Perturbation budget for the attack.
-        foolbox_use (bool): Whether to use Foolbox for attacks.
+        foolbox_use (bool): Whether to use Foolbox for attacks or AutoAttack.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -850,23 +849,36 @@ def plot_adversarial_examples(model, model_name, test_loader, loss, attack, atta
     pred_labels = []
     pred_adv_labels = []
 
-    for i, batch in enumerate(test_loader):
+    # Convert DataLoader to list to allow random access to batches
+    test_batches = list(test_loader)
+    random.shuffle(test_batches)
+
+    for batch_x, batch_y in test_batches:
         if plotted >= num_examples:
             break  # Stop once we reach the desired number
 
-        batch_x, batch_y = batch[0].to(device), batch[1].to(device)
+        batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+
+        if model.__class__.__name__ in ['ProbPSENN_VAE', 'ProbPSENN', 'ProtoVAEWrapper']:
+            norm=True
+        else:
+            norm=False
 
         # Generate adversarial examples
         loss_f = partial(loss, batch_y=batch_y)
         if foolbox_use:
             perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)
         else:
-            adv_attack = partial(attack, loss_f=loss_f, eps=eps)
+            adv_attack = partial(attack, loss_f=loss_f, eps=eps, norm=norm)
             perturbed_batch_x = adv_attack(batch_x)
 
         # Get predictions
         pred_y = torch.nn.functional.softmax(model(batch_x), dim=1)
         pred_y_adv = torch.nn.functional.softmax(model(perturbed_batch_x), dim=1)
+
+        # Shuffle indices to randomize the order of examples
+        indices = list(range(len(batch_x)))
+        random.shuffle(indices)
 
         # Collect examples
         for j in range(len(batch_x)):
