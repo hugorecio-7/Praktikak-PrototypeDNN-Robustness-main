@@ -387,9 +387,6 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
     plt.legend()
     plt.show()
 
-def denorm(t):
-    return (t + 1) / 2
-
 def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks, attack_names, loss, max_eps, step, foolbox_uses):
     """
     Plots and saves the accuracy of models under multiple adversarial attacks for different epsilon values.
@@ -404,8 +401,7 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
         max_eps (float or int): Maximum epsilon value for the attack.
         step (float, optional): Step size for epsilon values. Defaults to 0.025.
         foolbox_use (bool, optional): Whether to use Foolbox for attacks.
-    """
-    
+    """  
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dim = max_eps + 1 if isinstance(max_eps, int) else int(round(max_eps / step)) + 1
     x_axis = np.linspace(0, max_eps, dim) if isinstance(max_eps, float) else np.arange(0, max_eps + 1, 1)

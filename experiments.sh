@@ -88,3 +88,10 @@
 # sbatch sbatch_experiments.sh ProtoVAE AutoAttack_adv
 # sbatch sbatch_experiments.sh SENN_0_01 AutoAttack_adv
 
+# L2fFMNA_attack
+# sbatch sbatch_experiments.sh FTB30n L2fFMNA_attack
+# sbatch sbatch_experiments.sh FTB30p L2fFMNA_attack
+
+# L2DeepFool_attack
+# sbatch sbatch_experiments.sh FTB30n L2DeepFool_attack
+# sbatch sbatch_experiments.sh FTB30p L2DeepFool_attack

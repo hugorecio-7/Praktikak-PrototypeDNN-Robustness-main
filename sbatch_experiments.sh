@@ -30,5 +30,6 @@ echo $outfile
 #bnd -exec \
 apptainer exec -B /pfs --nv /opt/ohpc/pub/containers/NGC-pytorch-23.12-py3.sif pipenv run  \
 python run_test.py --models $1 --attacks $2 --max_eps 0.8 --step 0.025 > $outfile
+#python run_test.py --models $1 --attacks $2 --max_eps 22 --step 0.5 > $outfile
 
 

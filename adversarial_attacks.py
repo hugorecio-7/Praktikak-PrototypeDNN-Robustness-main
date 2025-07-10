@@ -184,12 +184,53 @@ def LinfDeepFool_attack(batch_x, batch_y, model, steps=50, candidates=10, oversh
 
     # Create the attack
     attack = fb.attacks.LinfDeepFoolAttack(steps=steps, candidates=candidates, overshoot=overshoot)
-    
     try:
         raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
     except Exception as e:
         print(f"Attack failed: {e}")
         return batch_x  # Fallback to original input
+
+    return  clipped
+
+def L2DeepFool_attack(batch_x, batch_y, model, steps=50, candidates=10, overshoot=1.02, epsilon=0.3):
+    """
+    Applies the L2DeepFool_attack attack from Foolbox to a batch of images.
+
+    Args:
+        batch_x (torch.Tensor): Batch of input images.
+        batch_y (torch.Tensor): True labels of the input batch.
+        model (torch.nn.Module): PyTorch model to attack.
+        steps (int): Maximum number of iterations for the attack.
+        candidates (int): Number of candidates for the DeepFool attack.
+        overshoot (float): Overshoot factor for the perturbation.
+        epsilon (float): The epsilon value to scale the perturbations.
+
+    Returns:
+        torch.Tensor: Perturbed images.
+    """
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Move model and data to CPU if they are not already
+    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
+    
+    
+    # Convert the PyTorch model to Foolbox
+    if model.__class__.__name__ in ['ProbPSENN_VAE', 'ProbPSENN', 'ProtoVAEWrapper']:
+        fmodel = fb.PyTorchModel(model, bounds=(-1, 1))
+    else:
+        fmodel = fb.PyTorchModel(model, bounds=(0, 1))
+
+    # Create the attack
+    attack = fb.attacks.L2DeepFoolAttack(steps=steps, candidates=candidates, overshoot=overshoot)
+    
+    try:
+        raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        return batch_x
     
     return  clipped
 
@@ -269,7 +310,7 @@ def LinfBasicIterative_attack(batch_x, batch_y, model, steps=50, epsilon=0.3, ra
     
     return  clipped
 
-def LinfFMNA_attack(batch_x, batch_y, model, steps=100, max_stepsize=2, min_stepsize=1e-3, gamma=0.1, epsilon=0.3):
+def LinfFMNA_attack(batch_x, batch_y, model, binary_search_steps, steps=100, max_stepsize=2, min_stepsize=1e-3, gamma=0.1, epsilon=0.3):
     """
     Applies the LinfFMNA_attack attack from Foolbox to a batch of images.
 
@@ -277,6 +318,7 @@ def LinfFMNA_attack(batch_x, batch_y, model, steps=100, max_stepsize=2, min_step
         batch_x (torch.Tensor): Batch of input images.
         batch_y (torch.Tensor): True labels of the input batch.
         model (torch.nn.Module): PyTorch model to attack.
+        binary_search_steps (int): Number of binary search steps for the attack.
         steps (int): Maximum number of iterations for the attack.
         max_stepsize (float): Maximum step size for the attack.
         min_stepsize (float): Minimum step size for the attack.
@@ -300,7 +342,49 @@ def LinfFMNA_attack(batch_x, batch_y, model, steps=100, max_stepsize=2, min_step
         fmodel = fb.PyTorchModel(model, bounds=(0, 1))
 
     # Create the attack
-    attack = fb.attacks.LInfFMNAttack(steps=steps, max_stepsize=max_stepsize, min_stepsize=min_stepsize, gamma=gamma)
+    attack = fb.attacks.LInfFMNAttack(steps=steps, max_stepsize=max_stepsize, min_stepsize=min_stepsize, gamma=gamma, binary_search_steps=binary_search_steps)
+    
+    try:
+        raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        return batch_x  # Fallback to original input
+    
+    return  clipped
+
+def L2FMNA_attack(batch_x, batch_y, model, binary_search_steps, steps=100, max_stepsize=2, min_stepsize=1e-3, gamma=0.1, epsilon=0.3):
+    """
+    Applies the L2fFMNA_attack attack from Foolbox to a batch of images.
+
+    Args:
+        batch_x (torch.Tensor): Batch of input images.
+        batch_y (torch.Tensor): True labels of the input batch.
+        model (torch.nn.Module): PyTorch model to attack.
+        binary_search_steps (int): Number of binary search steps for the attack.
+        steps (int): Maximum number of iterations for the attack.
+        max_stepsize (float): Maximum step size for the attack.
+        min_stepsize (float): Minimum step size for the attack.
+        gamma (float): Scaling factor for the perturbations.
+        epsilon (float): The epsilon value to scale the perturbations.
+
+    Returns:
+        torch.Tensor: Perturbed images.
+    """
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Move model and data to CPU if they are not already
+    model = model.to(device).eval() # Ensure model is on CPU and in eval mode
+    batch_x = batch_x.to(device)
+    batch_y = batch_y.to(device)
+    
+    # Convert the PyTorch model to Foolbox
+    if model.__class__.__name__ in ['ProbPSENN_VAE', 'ProbPSENN', 'ProtoVAEWrapper']:
+        fmodel = fb.PyTorchModel(model, bounds=(-1, 1))
+    else:
+        fmodel = fb.PyTorchModel(model, bounds=(0, 1))
+
+    # Create the attack
+    attack = fb.attacks.L2FMNAttack(steps=steps, max_stepsize=max_stepsize, min_stepsize=min_stepsize, gamma=gamma, binary_search_steps=binary_search_steps)
     
     try:
         raw, clipped, is_adv = attack(fmodel, batch_x, batch_y, epsilons=epsilon)

@@ -11,6 +11,7 @@ from model_testing import adversarial_attacks_eps_plot_test
 from data_loader import *
 from loss_functions import *
 from adversarial_attacks import *
+from foolbox.attacks import LinfAdditiveUniformNoiseAttack
 import json
 from types import SimpleNamespace
 from SENN.models.senn import SENN
@@ -45,10 +46,12 @@ config_paths = {
 attack_params = {
     "PGDLInf_attack": {"iters": 80, "alpha": 0.01, "random_start": True},
     "FSGM_attack" : {},
-    "LinfDeepFool_attack": {"steps": 50, "candidates": 10, "overshoot": 0.02},
+    "LinfDeepFool_attack": {"steps": 200, "candidates": 10, "overshoot": 0.005},
+    "L2DeepFool_attack":  {"steps": 200, "candidates": 10, "overshoot": 0.005},
     "LinfAdditiveUniformNoise_attack": {}, 
     "LinfBasicIterative_attack": {"steps": 10, "random_start": True},
-    "LinfFMNA_attack": {"steps": 100, "max_stepsize": 0.8, "min_stepsize": 1e-4, "gamma": 0.1},
+    "LinfFMNA_attack": {"steps": 10000, "max_stepsize": 1, "min_stepsize": 1e-4, "gamma": 0.1, "binary_search_steps": 100},
+    "L2FMNA_attack": {"steps": 10000, "max_stepsize": 1, "min_stepsize": 1e-4, "gamma": 0.1, "binary_search_steps": 100},
     "LinfMomentumIterativeFastGradient_attack": {"steps": 10},
     "LinfAdamProjectedGradientDescent_attack": {"steps": 20, "random_start": True},
     "AutoAttack_adv": {"version": "standard", "is_tf": False},
@@ -59,9 +62,11 @@ foolbox_attacks = {
     "PGDLInf_attack": False,
     "FSGM_attack" : False,
     "LinfDeepFool_attack": True,
+    "L2DeepFool_attack": True,
     "LinfAdditiveUniformNoise_attack": True,
     "LinfBasicIterative_attack": True,
     "LinfFMNA_attack": True,
+    "L2FMNA_attack": True,
     "LinfMomentumIterativeFastGradient_attack": True,
     "LinfAdamProjectedGradientDescent_attack": True,
     "AutoAttack_adv": True,
@@ -75,7 +80,6 @@ class ProtoVAEWrapper(nn.Module):
 
     def forward(self, x):
         logits, _ = self.base.pred_class(x)
-        #logits, _, _, _ = self.base(x, is_train=False)
         return logits
 
 # A function to get the parts of the SENN model and load the full SENN model
@@ -133,6 +137,7 @@ def get_function(function_name):
         raise ValueError(f"Function '{function_name}' not found. Make sure it's defined or imported.")
 
 def main():
+    
     parser = argparse.ArgumentParser(description="Run adversarial attack evaluation and save results.")
 
     # Required arguments

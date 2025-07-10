@@ -14,6 +14,11 @@ The following L∞-norm adversarial attacks have been added:
 - `LinfAdamProjectedGradientDescent_attack`
 - `AutoAttack_adv`
 
+The following L2-norm adversarial attacks have been added:
+
+- `L2DeepFool_attack`
+- `L2FMNA_attack`
+
 ## Available models to test
 
 The following models can be tested:
@@ -115,8 +120,8 @@ Attacks hyperparameters can be adjusted changing the code in the same evaluation
 - Command-line arguments:
     - $1: Name of the model to test (e.g., ProtoVAE, S30).
     - $2: Name of the attack to use (e.g., PGDLInf_attack).
-    - --max_eps: 0.8 (fixed)
-    - --step: 0.025 (fixed)
+    - --max_eps: 0.8 (fixed) (there is another command-line with 22 for L2 norm)
+    - --step: 0.025 (fixed) (there is another command-line with 0.5 for L2 norm)
 
 ### foolbox directory
 - Contains all the Foolbox attack implementations. **No changes** were made to the original code.

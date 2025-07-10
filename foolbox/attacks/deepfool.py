@@ -113,8 +113,9 @@ class DeepFoolAttack(MinimizationAttack, ABC):
         criterion = get_criterion(criterion)
 
         min_, max_ = model.bounds
-
+        
         logits = model(x)
+        
         classes = logits.argsort(axis=-1).flip(axis=-1)
         if self.candidates is None:
             candidates = logits.shape[-1]  # pragma: no cover
@@ -135,11 +136,11 @@ class DeepFoolAttack(MinimizationAttack, ABC):
 
         x0 = x
         p_total = ep.zeros_like(x)
-        for _ in range(self.steps):
+        for step in range(self.steps): ######
             # let's first get the logits using k = 1 to see if we are done
             diffs = [loss_aux_and_grad(x, 1)]
             _, (_, logits), _ = diffs[0]
-
+            
             is_adv = criterion(x, logits)
             if is_adv.all():
                 break
@@ -152,7 +153,7 @@ class DeepFoolAttack(MinimizationAttack, ABC):
             # we don't need the logits
             diffs_ = [(losses, grad) for _, (losses, _), grad in diffs]
             losses = ep.stack([lo for lo, _ in diffs_], axis=1)
-            grads = ep.stack([g for _, g in diffs_], axis=1)
+            grads = ep.stack([g for _, g in diffs_], axis=1)   
             assert losses.shape == (N, candidates - 1)
             assert grads.shape == (N, candidates - 1) + x0.shape[1:]
 
@@ -175,6 +176,7 @@ class DeepFoolAttack(MinimizationAttack, ABC):
             assert p_step.shape == x0.shape
 
             p_total += p_step
+
             # don't do anything for those that are already adversarial
             x = ep.where(
                 atleast_kd(is_adv, x.ndim), x, x0 + (1.0 + self.overshoot) * p_total

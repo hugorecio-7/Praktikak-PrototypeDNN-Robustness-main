@@ -148,6 +148,7 @@ class FMNAttackLp(MinimizationAttack, ABC):
         del inputs, criterion, kwargs
         N = len(x)
         initialized = False
+        
         # start from initialization points/attack
         if starting_points is not None:
             x1 = starting_points
