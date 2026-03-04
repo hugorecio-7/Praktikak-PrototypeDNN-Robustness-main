@@ -8,5 +8,3 @@ tqdm==4.65.0
 scikit-learn
 foolbox
 git+https://github.com/fra31/auto-attack.git
-tensorflow==2.10
-tensorflow-probability==0.15

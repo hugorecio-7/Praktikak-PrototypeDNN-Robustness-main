@@ -1,3 +1,5 @@
+from pyexpat import model
+
 import torch
 import numpy as np
 from functools import partial
@@ -10,6 +12,10 @@ import foolbox as fb
 import eagerpy as ep
 import pandas as pd
 import random
+import os
+import json
+import time
+from datetime import datetime
 
 softmax = Softmax()
 
@@ -387,105 +393,6 @@ def adversarial_attacks_eps_plot(models, model_names, test_loader, attack, loss,
     plt.legend()
     plt.show()
 
-def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks, attack_names, loss, max_eps, step, foolbox_uses):
-    """
-    Plots and saves the accuracy of models under multiple adversarial attacks for different epsilon values.
-
-    Args:
-        models (list): List of PyTorch models.
-        model_names (list): List of names corresponding to the models.
-        test_loader (torch.utils.data.DataLoader): Data loader for the test dataset.
-        attacks (list): List of adversarial attack functions.
-        attack_names (list): List of attack names.
-        loss (function): Loss function used for the attack.
-        max_eps (float or int): Maximum epsilon value for the attack.
-        step (float, optional): Step size for epsilon values. Defaults to 0.025.
-        foolbox_use (bool, optional): Whether to use Foolbox for attacks.
-    """  
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dim = max_eps + 1 if isinstance(max_eps, int) else int(round(max_eps / step)) + 1
-    x_axis = np.linspace(0, max_eps, dim) if isinstance(max_eps, float) else np.arange(0, max_eps + 1, 1)
-
-    for attack, attack_name, foolbox_use in zip(attacks, attack_names, foolbox_uses):
-        results = np.zeros((len(models), dim))
-
-        for batch in test_loader:
-            batch_x, batch_y = batch
-            batch_x = batch_x.to(device)
-            batch_y = batch_y.to(device)
-
-            for idm, model in enumerate(models):
-
-                # Check if the model requires batch normalization inside the attack
-                if model.__class__.__name__ in ['ProbPSENN_VAE', 'ProbPSENN', 'ProtoVAEWrapper']:
-                    norm=True
-                else:
-                    norm=False
-                
-                pred_y = model.forward(batch_x)
-                
-                pred_y_s = torch.softmax(pred_y, dim=1)
-
-                if not foolbox_use:
-                    loss_f = partial(loss, model=model, batch_y=batch_y)
-
-                # Non-adversarial test set accuracy
-                _, max_indices = torch.max(pred_y_s, 1)
-                n = max_indices.size(0)
-                results[idm, 0] += (max_indices == batch_y).float().sum().item() / n
-
-                # Adversarial test set accuracy for different epsilon values
-                maxx = int(round(max_eps / step)) if isinstance(max_eps, float) else max_eps
-                s = int(round(step / step)) if isinstance(max_eps, float) else 1
-
-                for ide, epss in enumerate(np.arange(s, maxx + s, s)):
-                    eps = epss * step if isinstance(max_eps, float) else epss
-
-                    # Generate adversarial examples
-                    if foolbox_use:
-                        perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)    
-                    else:
-                        adv_attack = partial(attack, loss_f=loss_f, eps=eps, norm=norm)
-                        perturbed_batch_x = adv_attack(batch_x)
-
-                    # Get predictions for adversarial examples
-                    
-                    pred_y_adv = model.forward(perturbed_batch_x)
-
-                    # Adversarial test accuracy
-                    _, max_indices_adv = torch.max(pred_y_adv, 1)
-                    results[idm, ide + 1] += (max_indices_adv == batch_y).float().sum().item() / n
-        
-        results /= len(test_loader)
-
-        # Save accuracy results and plot for each model and attack
-        for idm, model_name in enumerate(model_names):
-            model_result = results[idm]
-
-            # Save results to CSV
-            csv_path = f"results/Accuracy/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_results.csv"
-            df = pd.DataFrame({model_name: model_result}, index=x_axis)
-            df.index.name = "Epsilon"
-            df.to_csv(csv_path)
-
-            # Plot results
-            plt.figure(figsize=(8, 6))
-            plt.plot(x_axis, model_result, label=model_name)
-            plt.scatter(x_axis, model_result)
-
-            plt.xlabel('Epsilon')
-            plt.ylabel('Accuracy')
-            plt.legend()
-            plt.title(f"Adversarial Attack Accuracy vs. Epsilon\nModel: {model_name} | Attack: {attack_name}")
-
-            # Save plot
-            jpg_path = f"results/Plot/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_plot.jpg"
-            plt.savefig(jpg_path, dpi=300)
-            plt.close()
-
-            print(f"Accuracy results saved to {csv_path}")
-            print(f"Plot saved to {jpg_path}")
-
 def test_model(model, test_loader):
     """
     Test the given model on the test dataset and calculate the accuracy.
@@ -816,4 +723,301 @@ def plot_adversarial_examples(model, model_name, test_loader, loss, attack, atta
 
     plt.tight_layout()
     plt.show()
+
+def _ensure_dir(p):
+    os.makedirs(p, exist_ok=True)
+
+def _save_json(path, obj):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2)
+
+def bootstrap_ci_mean_matrix(X, B=2000, alpha=0.05, seed=0, chunk=200):
+    rng = np.random.default_rng(seed)
+    N, D = X.shape
+    means = np.empty((B, D), dtype=np.float32)
+
+    for start in range(0, B, chunk):
+        b = min(chunk, B - start)
+        idx = rng.integers(0, N, size=(b, N), dtype=np.int32)
+        sample = X[idx]               # (b, N, D)
+        means[start:start+b] = sample.mean(axis=1)
+
+    low = np.quantile(means, alpha/2, axis=0)
+    high = np.quantile(means, 1 - alpha/2, axis=0)
+    return low.tolist(), high.tolist()
+ 
+def adversarial_attacks_eps_plot_test_copy(models, model_names, test_loader, attacks, attack_names, loss, max_eps, step, foolbox_uses):
+    """
+    Plots and saves the accuracy of models under multiple adversarial attacks for different epsilon values.
+
+    Args:
+        models (list): List of PyTorch models.
+        model_names (list): List of names corresponding to the models.
+        test_loader (torch.utils.data.DataLoader): Data loader for the test dataset.
+        attacks (list): List of adversarial attack functions.
+        attack_names (list): List of attack names.
+        loss (function): Loss function used for the attack.
+        max_eps (float or int): Maximum epsilon value for the attack.
+        step (float, optional): Step size for epsilon values. Defaults to 0.025.
+        foolbox_use (bool, optional): Whether to use Foolbox for attacks.
+    """  
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
+    dim = max_eps + 1 if isinstance(max_eps, int) else int(round(max_eps / step)) + 1
+    x_axis = np.linspace(0, max_eps, dim) if isinstance(max_eps, float) else np.arange(0, max_eps + 1, 1)
+
+    for attack, attack_name, foolbox_use in zip(attacks, attack_names, foolbox_uses):
+        results = np.zeros((len(models), dim))
+
+        for batch in test_loader:
+            batch_x, batch_y = batch
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
+
+            for idm, model in enumerate(models):
+
+                # Check if the model requires batch normalization inside the attack
+                # if model.__class__.__name__ in ['ProbPSENN_VAE', 'ProbPSENN', 'ProtoVAEWrapper']:
+                #     norm=True
+                # else:
+                norm=False
+                
+                # Non-adversarial test set accuracy
+                pred_y = model.forward(batch_x)
+                #pred_y_s = torch.softmax(pred_y, dim=1) 
+                _, max_indices = torch.max(pred_y, 1)
+                n = max_indices.size(0)
+                results[idm, 0] += (max_indices == batch_y).float().sum().item() / n
+
+                if not foolbox_use:
+                    loss_f = partial(loss, model=model, batch_y=batch_y)
+
+                # Adversarial test set accuracy for different epsilon values
+                maxx = int(round(max_eps / step)) if isinstance(max_eps, float) else max_eps
+                s = int(round(step / step)) if isinstance(max_eps, float) else 1
+
+                for ide, epss in enumerate(np.arange(s, maxx + s, s)):
+                    eps = epss * step if isinstance(max_eps, float) else epss
+                    
+                    # Generate adversarial examples
+                    if foolbox_use:
+                        perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)    
+                    else:
+                        adv_attack = partial(attack, loss_f=loss_f, eps=eps, norm=norm)
+                        perturbed_batch_x = adv_attack(batch_x)
+
+                    # Get predictions for adversarial examples
+                    
+                    pred_y_adv = model.forward(perturbed_batch_x)
+
+                    # Adversarial test accuracy
+                    _, max_indices_adv = torch.max(pred_y_adv, 1)
+                    results[idm, ide + 1] += (max_indices_adv == batch_y).float().sum().item() / n
+        
+        results /= len(test_loader)
+
+        # Save accuracy results and plot for each model and attack
+        for idm, model_name in enumerate(model_names):
+            model_result = results[idm]
+
+            # Save results to CSV
+            csv_path = f"results/Accuracy/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_results_prueba.csv"
+            df = pd.DataFrame({model_name: model_result}, index=x_axis)
+            df.index.name = "Epsilon"
+            df.to_csv(csv_path)
+
+            # Plot results
+            plt.figure(figsize=(8, 6))
+            plt.plot(x_axis, model_result, label=model_name)
+            plt.scatter(x_axis, model_result)
+            plt.xlabel('Epsilon')
+            plt.ylabel('Accuracy')
+            plt.legend()
+            plt.title(f"Adversarial Attack Accuracy vs. Epsilon\nModel: {model_name} | Attack: {attack_name}")
+
+            # Save plot
+            jpg_path = f"results/Plot/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_plot_prueba.jpg"
+            plt.savefig(jpg_path, dpi=300)
+            plt.close()
+
+            print(f"Accuracy results saved to {csv_path}")
+            print(f"Plot saved to {jpg_path}")
+ 
+def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks, attack_names, loss, max_eps, step, foolbox_uses, out_root, dataset, threat, seed, run_id, attack_params_map=None, bootstrap_B=2000, bootstrap_alpha=0.05):
+    """
+    Plots and saves the accuracy of models under multiple adversarial attacks for different epsilon values.
+
+    Args:
+        models (list): List of PyTorch models.
+        model_names (list): List of names corresponding to the models.
+        test_loader (torch.utils.data.DataLoader): Data loader for the test dataset.
+        attacks (list): List of adversarial attack functions.
+        attack_names (list): List of attack names.
+        loss (function): Loss function used for the attack.
+        max_eps (float or int): Maximum epsilon value for the attack.
+        step (float, optional): Step size for epsilon values. Defaults to 0.025.
+        foolbox_use (bool, optional): Whether to use Foolbox for attacks.
+        out_root (str): Root directory to save results.
+        dataset (str): Name of the dataset used.
+        threat (str): Threat model used for the attack.
+        seed (int): Random seed for reproducibility.
+        run_id (str): Identifier for the current run (e.g., "run1").
+        attack_params_map (dict, optional): A mapping of attack names to their specific parameters. Defaults to None.
+        bootstrap_B (int, optional): Number of bootstrap samples for confidence interval estimation. Defaults to 2000.
+        bootstrap_alpha (float, optional): Significance level for confidence intervals. Defaults to 0
+    """  
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    if isinstance(max_eps, float):
+        x_axis = np.arange(0.0, max_eps + 1e-12, step, dtype=np.float64)  
+    else:
+        x_axis = np.arange(0, max_eps + 1, 1, dtype=np.int64) 
+    dim = len(x_axis)  
+    
+    # Ensure output directories exist
+    _ensure_dir("resultsTFG/Accuracy")
+    _ensure_dir("resultsTFG/Plot")
+    
+    # Get GPU name for logging
+    gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"  # (añadido)
+
+    if run_id is None:  # (añadido)
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")  # (añadido)
+
+    for attack, attack_name, foolbox_use in zip(attacks, attack_names, foolbox_uses):
+        results = np.zeros((len(models), dim))
+        
+        t0 = time.time()
+        
+        per_example = [[[] for _ in range(dim)] for _ in range(len(models))]
+
+        for batch_idx, batch in enumerate(test_loader):
+            batch_x, batch_y = batch
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
+
+            for idm, model in enumerate(models):
+                
+                # Get predictions for the original batch
+                with torch.no_grad():  
+                    pred_y = model.forward(batch_x)  
+                    _, max_indices = torch.max(pred_y, 1)  
+
+                per_example[idm][0].append((max_indices == batch_y).detach().cpu().numpy().astype(np.uint8))
+
+                if not foolbox_use:
+                    loss_f = partial(loss, model=model, batch_y=batch_y)
+
+                for ide in range(1, dim): 
+                    eps = float(x_axis[ide])
+                    
+                    # Generate adversarial examples
+                    if foolbox_use:
+                        perturbed_batch_x = attack(batch_x, batch_y, model=model, epsilon=eps)    
+                    else:
+                        if attack_name == "PatchPGD_attack":
+                            adv_attack = partial(attack, loss_f=loss_f, eps=eps, batch_idx=batch_idx)
+                        else:
+                            adv_attack = partial(attack, loss_f=loss_f, eps=eps)
+                        perturbed_batch_x = adv_attack(batch_x)
+
+                    # Get predictions for adversarial examples
+                    with torch.no_grad():  
+                        pred_y_adv = model.forward(perturbed_batch_x)
+                        _, max_indices_adv = torch.max(pred_y_adv, 1)
+
+                    per_example[idm][ide].append((max_indices_adv == batch_y).detach().cpu().numpy().astype(np.uint8))
+        
+        runtime_s = time.time() - t0
+
+        # Save accuracy results and plot for each model and attack
+        for idm, model_name in enumerate(model_names):
+            
+            cols = [np.concatenate(per_example[idm][j], axis=0) for j in range(dim)] 
+            X = np.stack(cols, axis=1) # (N_test, dim) 
+            model_result = X.mean(axis=0)  
+
+            ci_low, ci_high = bootstrap_ci_mean_matrix(  # (añadido)
+                X, B=bootstrap_B, alpha=bootstrap_alpha, seed=seed + idm, chunk=200
+            )
+
+            # Save results to CSV
+            csv_path = f"resultsTFG/Accuracy/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_results.csv"
+            df = pd.DataFrame({model_name: model_result}, index=x_axis)
+            df.index.name = "Epsilon"
+            df.to_csv(csv_path)
+
+            # Plot results
+            plt.figure(figsize=(8, 6))
+            plt.plot(x_axis, model_result, label=model_name)
+            plt.scatter(x_axis, model_result)
+            plt.xlabel('Epsilon')
+            plt.ylabel('Accuracy')
+            plt.legend()
+            plt.title(f"Adversarial Attack Accuracy vs. Epsilon\nModel: {model_name} | Attack: {attack_name}")
+
+            # Save plot
+            jpg_path = f"resultsTFG/Plot/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_plot.jpg"
+            plt.savefig(jpg_path, dpi=300)
+            plt.close()
+
+            print(f"Accuracy results saved to {csv_path}")
+            print(f"Plot saved to {jpg_path}")
+            
+            # Save metrics and per-example results in a structured way
+            run_dir = os.path.join(out_root, dataset, threat, attack_name, model_name, f"seed={seed}", f"run_id={run_id}") 
+            _ensure_dir(run_dir) 
+
+            df.to_csv(os.path.join(run_dir, "curve.csv"))  
+
+            np.savez_compressed(  
+                os.path.join(run_dir, "per_example_correct.npz"),
+                correct=X.astype(np.uint8),
+                eps=x_axis.astype(np.float32)
+            )
+
+            clean = float(model_result[0]) if float(model_result[0]) > 0 else 1e-12  
+            rel_deg = (clean - model_result) / clean * 100.0 
+
+            # Monotonicity violation detection 
+            viol = []  
+            if isinstance(max_eps, float) and dim > 2:  
+                tol = 0.01  
+                for j in range(dim - 1):  
+                    if model_result[j + 1] > model_result[j] + tol:  
+                        viol.append({  
+                            "from_eps": float(x_axis[j]),
+                            "to_eps": float(x_axis[j + 1]),
+                            "delta": float(model_result[j + 1] - model_result[j]),
+                        })
+
+            params = {}  
+            if attack_params_map is not None:  
+                params = attack_params_map.get(attack_name, {})  
+
+            metrics = {  
+                "dataset": dataset,
+                "threat_model": threat,
+                "model": model_name,
+                "attack": attack_name,
+                "seed": int(seed),
+                "run_id": run_id,
+                "device": str(device),
+                "gpu_name": gpu_name,
+                "runtime_s": float(runtime_s),
+                "n_test": int(X.shape[0]),
+                "eps": [float(e) for e in x_axis.tolist()],
+                "acc": [float(a) for a in model_result.tolist()],
+                "relative_degradation_pct": [float(r) for r in rel_deg.tolist()],
+                "ci95_bootstrap": {
+                    "low": ci_low,
+                    "high": ci_high,
+                    "B": int(bootstrap_B),
+                    "alpha": float(bootstrap_alpha),
+                    "seed": int(seed + idm),
+                },
+                "attack_params": params,
+                "monotonicity_violations": viol,
+                "notes": "legacy CSV+plot also saved under results/Accuracy and results/Plot",
+            }
+            _save_json(os.path.join(run_dir, "metrics.json"), metrics) 
