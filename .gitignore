@@ -5,3 +5,6 @@ anaconda_projects/
 __pycache__/
 *.pyc
 *.swo
+.venv/ 
+venv/
+env/

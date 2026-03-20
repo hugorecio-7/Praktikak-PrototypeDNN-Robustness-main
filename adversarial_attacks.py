@@ -13,7 +13,6 @@ def FSGM_attack(batch_x, loss_f, eps):
         batch_x (torch.Tensor): The input batch of images.
         loss_f (callable): The loss function used to compute the loss.
         eps (float): The magnitude of the perturbation.
-        norm (bool): If True, the perturbation is clamped to [-1, 1]. If False, it is clamped to [0, 1].
         
     Returns:
         torch.Tensor: The perturbed batch of images.
@@ -47,7 +46,6 @@ def PGDLInf_attack(batch_x, loss_f, iters, eps, alpha, random_start):
         eps (float): The maximum perturbation allowed for each pixel.
         alpha (float): The step size for each iteration of the attack.
         random_start (bool): Whether to start the attack from a random point.
-        norm (bool): If True, the perturbation is clamped to [-1, 1]. If False, it is clamped to [0, 1].
 
     Returns:
         torch.Tensor: The perturbed batch of input images.
