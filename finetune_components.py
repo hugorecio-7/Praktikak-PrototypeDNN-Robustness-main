@@ -408,6 +408,9 @@ def protovae_terms(
     ce = F.cross_entropy(logits, y)
     recon = F.mse_loss(decoded, x_target, reduction="mean")
 
+    # Clamp KL loss to prevent extreme values from destabilizing training, especially in early epochs.
+    kl_loss = torch.clamp(kl_loss, max=10.0)
+
     full_loss = (
         cfg.proto_ce_coef * ce
         + cfg.proto_recon_coef * recon
