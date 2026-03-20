@@ -93,6 +93,7 @@ class TrainConfig:
     lr: float
     weight_decay: float
     val_size: float
+    early_stopping_patience: int
     save_root: str
     num_workers: int
 
@@ -882,6 +883,9 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
         b30_lambda_1=args.b30_lambda_1 if args.b30_lambda_1 is not None else B30_DEFAULT_LAMBDA_1,
         b30_lambda_clus=args.b30_lambda_clus if args.b30_lambda_clus is not None else B30_DEFAULT_LAMBDA_CLUS,
         b30_lambda_sep=args.b30_lambda_sep if args.b30_lambda_sep is not None else B30_DEFAULT_LAMBDA_SEP,
+        
+        # Early stopping parameters
+        early_stopping_patience=args.early_stopping_patience,
     )
 
 
@@ -900,6 +904,7 @@ def main():
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--val_size", type=float, default=0.2)
+    parser.add_argument("--early_stopping_patience", type=int, default=10)
 
     # Environment-aware default: Kaggle -> /kaggle/working, Colab -> /content, else local ./results
     parser.add_argument("--save_root", type=str, default=None)
@@ -988,6 +993,8 @@ def main():
 
     history: List[Dict] = []
     best_val_adv_acc = -1.0
+    best_epoch = -1          
+    patience_counter = 0
 
     best_ckpt_name = f"{cfg.model_name}_{cfg.variant}_seed{cfg.seed}_best_val_adv_acc.pth"
     best_ckpt_path = ckpt_dir / best_ckpt_name
@@ -995,6 +1002,7 @@ def main():
     start_time = time.time()
 
     for epoch in range(1, cfg.epochs + 1):
+        epochs_run = epoch
         train_metrics = run_epoch(model, train_loader, cfg, optimizer)
         val_metrics = run_epoch(model, val_loader, cfg, optimizer=None)
 
@@ -1008,6 +1016,8 @@ def main():
 
         if val_metrics["adv_acc"] > best_val_adv_acc:
             best_val_adv_acc = val_metrics["adv_acc"]
+            best_epoch = epoch
+            patience_counter = 0
 
             torch.save(
                 {
@@ -1022,6 +1032,11 @@ def main():
                 },
                 best_ckpt_path,
             )
+        else:
+            patience_counter += 1
+            if patience_counter >= cfg.early_stopping_patience:
+                print(f"Early stopping triggered after {epoch} epochs without improvement.")
+                break
 
     total_runtime_s = time.time() - start_time
 
@@ -1037,6 +1052,8 @@ def main():
         "total_params": total_params,
         "trainable_params": trainable_params,
         "best_val_adv_acc": best_val_adv_acc,
+        "best_epoch": best_epoch,
+        "epochs_run": epochs_run,
         "runtime_s": total_runtime_s,
         "best_checkpoint_path": str(best_ckpt_path),
         "config": asdict(cfg),
