@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from .settings import *
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 from .settings import *
 import numpy as np
 
@@ -26,8 +25,13 @@ class ProtoVAE(nn.Module):
         self.epsilon = 1e-4
 
 
-        self.prototype_class_identity = torch.zeros(self.num_prototypes,
-                                                    self.num_classes)
+        # Keep class identity on the same device as the module while avoiding
+        # checkpoint compatibility issues with older state_dicts.
+        self.register_buffer(
+            "prototype_class_identity",
+            torch.zeros(self.num_prototypes, self.num_classes),
+            persistent=False,
+        )
 
         self.num_prototypes_per_class = self.num_prototypes // self.num_classes
         for j in range(self.num_prototypes):
@@ -313,7 +317,8 @@ class ProtoVAE(nn.Module):
         #     # Handle test case: set kl_loss to 0 or skip
         #     kl_loss = torch.tensor(0.0).to(device)  # Placeholder value
 
-        prototypes_of_correct_class = torch.t(self.prototype_class_identity[:, y]).to(device)
+        y_for_index = y.to(self.prototype_class_identity.device)
+        prototypes_of_correct_class = torch.t(self.prototype_class_identity[:, y_for_index]).to(x.device)
 
         index_prototypes_of_correct_class = (prototypes_of_correct_class == 1).nonzero(as_tuple=True)[1]
         index_prototypes_of_correct_class = index_prototypes_of_correct_class.view(x.shape[0],self.num_prototypes_per_class)
@@ -331,13 +336,14 @@ class ProtoVAE(nn.Module):
 
 
     def ortho_loss(self):
+        proto_device = self.prototype_vectors.device
         s_loss = 0
         for k in range(self.num_classes):
             p_k = self.prototype_vectors[k*self.num_prototypes_per_class:(k+1)*self.num_prototypes_per_class,:]
             p_k_mean = torch.mean(p_k, dim=0)
             p_k_2 = p_k - p_k_mean
             p_k_dot = p_k_2 @ p_k_2.T
-            s_matrix = p_k_dot - (torch.eye(p_k.shape[0]).to(device))
+            s_matrix = p_k_dot - torch.eye(p_k.shape[0], device=proto_device)
             s_loss+= torch.norm(s_matrix,p=2)
         return s_loss/self.num_classes
 
@@ -349,11 +355,12 @@ class ProtoVAE(nn.Module):
 
 
     def kl_divergence_nearest(self, mu, logVar, nearest_pt, sim_scores):
-        kl_loss = torch.zeros(sim_scores.shape).to(device)
+        proto_device = self.prototype_vectors.device
+        kl_loss = torch.zeros(sim_scores.shape, device=proto_device)
         for i in range(self.num_prototypes_per_class):
             p = torch.distributions.Normal(mu, torch.exp(logVar / 2))
             p_v = self.prototype_vectors[nearest_pt[:,i],:]
-            q = torch.distributions.Normal(p_v, torch.ones(p_v.shape).to(device))
+            q = torch.distributions.Normal(p_v, torch.ones_like(p_v))
             kl = torch.mean(torch.distributions.kl.kl_divergence(p, q), dim=1)
             kl_loss[np.arange(sim_scores.shape[0]),nearest_pt[:,i]] = kl
         kl_loss = kl_loss*sim_scores
