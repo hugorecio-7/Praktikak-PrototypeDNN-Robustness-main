@@ -63,6 +63,7 @@ PROTOVAE_VARIANTS = {
     "ProtoVAE-FT-1": {"freeze": ["autoencoder"]},
     "ProtoVAE-FT-2": {"freeze": ["prototypes"]},
     "ProtoVAE-FT-3": {"freeze": ["classifier"]},
+    "ProtoVAE-FT-E": {"freeze": ["prototypes", "classifier"]},
 }
 
 SENN_VARIANTS = {
@@ -76,6 +77,7 @@ B30_VARIANTS = {
     "B30-FT-1": {"freeze": ["autoencoder"]},
     "B30-FT-2": {"freeze": ["prototypes"]},
     "B30-FT-3": {"freeze": ["classifier"]},
+    "B30-FT-E": {"freeze": ["prototypes", "classifier"]},
 }
 
 
