@@ -154,11 +154,21 @@ def load_models(model_names):
             model.load_state_dict(state)
             model = ProtoVAEWrapper(model).to(device).eval()
             print("Model ProtoVAE loaded")
+        elif name.startswith("ProtoVAE-FT-"):
+            model = model_protovae.ProtoVAE().to(device)
+            state = torch.load(model_path, map_location=device)
+            model.load_state_dict(state["model_state"])
+            model = ProtoVAEWrapper(model).to(device).eval()
+            print(f"Model {name} loaded")
+        elif name.startswith("B30-FT-"):
+            B30_BASE = "saved_model/mnist_model/mnist_cae_balanced_clstsep_1500_0.002_250_True_0.0_20_1_1_1_1.0_0.0_30_4_32_1/mnist_cae00750.pth"
+            model = torch.load(B30_BASE, map_location=device, weights_only=False)
+            state = torch.load(model_path, map_location=device)
+            model.load_state_dict(state["model_state"])
+            model.eval()
+            print(f"Model {name} loaded")
         else: # For other models, load them directly
             model = torch.load(model_path, map_location=device)
-            if "SENN-FT" in name:
-                model = SENNWrapper(model).to(device).eval()
-                print(f"Model {name} loaded as SENN")
             model.eval()
         models.append(model)
     return models, model_names
