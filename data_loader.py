@@ -35,7 +35,7 @@ def get_train_val_loader(data_dir, batch_size, random_seed, augment=False, val_s
 # function to load and return a multi-process test iterator over the MNIST dataset.
 def get_test_loader(data_dir, 
                     batch_size,
-                    shuffle=True,
+                    shuffle=False,
                     num_workers=0,
                     pin_memory=True):
 

@@ -28,15 +28,33 @@ paths = {"B30": "saved_model/mnist_model/mnist_cae_balanced_clstsep_1500_0.002_2
          "RB30": "saved_model/mnist_model/mnist_cae_adversarial_balanced_clstsep_pdglinf_ce_20_0.3_0.02_True_800_0.002_250_True_0.0_20_1_1_1_1.0_0.0_1.0_30_4_32_1/mnist_cae_adv00750.pth",
          "FTB30n": "saved_model/mnist_model/mnist_cae_FT_30_nothing_pdglinf_ce_20_0.3_0.02_True_20_0.002_250_20_1_1_1_1.0_0.0_1/mnist_cae_adv00020.pth",
          "FTB30p": "saved_model/mnist_model/mnist_cae_FT_30_prototypes_pdglinf_ce_20_0.3_0.02_True_20_0.002_250_20_1_1_1_1.0_0.0_1/mnist_cae_adv00020.pth",
+         
+         "B30-FT-0": "tfg_models/B30/B30-FT-0/seed=1/checkpoints/B30_B30-FT-0_seed1_best_val_adv_acc.pth",
+         "B30-FT-1": "tfg_models/B30/B30-FT-1/seed=1/checkpoints/B30_B30-FT-1_seed1_best_val_adv_acc.pth",
+         "B30-FT-2": "tfg_models/B30/B30-FT-2/seed=1/checkpoints/B30_B30-FT-2_seed1_best_val_adv_acc.pth",
+         "B30-FT-3": "tfg_models/B30/B30-FT-3/seed=1/checkpoints/B30_B30-FT-3_seed1_best_val_adv_acc.pth",
+         "B30-FT-E": "tfg_models/B30/B30-FT-E/seed=1/checkpoints/B30_B30-FT-E_seed1_best_val_adv_acc.pth",
          # SENN models
          "SENN_0_01": "SENN/results/mnist_lambda1e-2_seed29/checkpoints/best_model.pt",
+         "SENN-FT-0": "tfg_models/SENN_0_01/SENN-FT-0/seed=1/checkpoints/SENN_0_01_SENN-FT-0_seed1_best_val_adv_acc.pth",
+         "SENN-FT-1": "tfg_models/SENN_0_01/SENN-FT-1/seed=1/checkpoints/SENN_0_01_SENN-FT-1_seed1_best_val_adv_acc.pth",
+         "SENN-FT-2": "tfg_models/SENN_0_01/SENN-FT-2/seed=1/checkpoints/SENN_0_01_SENN-FT-2_seed1_best_val_adv_acc.pth",
+
          # ProtoVAE models
          "ProtoVAE": "ProtoVAE/saved_models/mnist/model.pth",
+         "ProtoVAE-FT-0": "tfg_models/ProtoVAE/ProtoVAE-FT-0/seed=1/checkpoints/ProtoVAE_ProtoVAE-FT-0_seed1_best_val_adv_acc.pth",
+         "ProtoVAE-FT-1": "tfg_models/ProtoVAE/ProtoVAE-FT-1/seed=1/checkpoints/ProtoVAE_ProtoVAE-FT-1_seed1_best_val_adv_acc.pth",
+         "ProtoVAE-FT-2": "tfg_models/ProtoVAE/ProtoVAE-FT-2/seed=1/checkpoints/ProtoVAE_ProtoVAE-FT-2_seed1_best_val_adv_acc.pth",
+         "ProtoVAE-FT-3": "tfg_models/ProtoVAE/ProtoVAE-FT-3/seed=1/checkpoints/ProtoVAE_ProtoVAE-FT-3_seed1_best_val_adv_acc.pth",
+         "ProtoVAE-FT-E": "tfg_models/ProtoVAE/ProtoVAE-FT-E/seed=1/checkpoints/ProtoVAE_ProtoVAE-FT-E_seed1_best_val_adv_acc.pth",
          }
 
 # Paths to SENN config files
 config_paths = {
         "SENN_0_01": "SENN/configs/mnist_lambda1e-2_seed29.json",
+        "SENN-FT-0": "SENN/configs/mnist_lambda1e-2_seed29.json",
+        "SENN-FT-1": "SENN/configs/mnist_lambda1e-2_seed29.json",
+        "SENN-FT-2": "SENN/configs/mnist_lambda1e-2_seed29.json",
 }
 
 # Define attack parameters
@@ -138,6 +156,9 @@ def load_models(model_names):
             print("Model ProtoVAE loaded")
         else: # For other models, load them directly
             model = torch.load(model_path, map_location=device)
+            if "SENN-FT" in name:
+                model = SENNWrapper(model).to(device).eval()
+                print(f"Model {name} loaded as SENN")
             model.eval()
         models.append(model)
     return models, model_names

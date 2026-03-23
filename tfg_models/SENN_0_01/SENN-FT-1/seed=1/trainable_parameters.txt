@@ -1,0 +1,6 @@
+parameterizer.cl_layers.0.weight
+parameterizer.cl_layers.0.bias
+parameterizer.cl_layers.3.weight
+parameterizer.cl_layers.3.bias
+parameterizer.fc_layers.0.weight
+parameterizer.fc_layers.0.bias

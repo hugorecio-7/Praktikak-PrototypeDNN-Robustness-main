@@ -1,0 +1,44 @@
+Adversarial Fine-tuning Configuration
+Model: B30
+Variant: B30-FT-E
+Random Seed: 1
+
+Optimization
+Epochs: 50
+Learning Rate: 0.002
+Batch Size: 250
+Num Workers: 3
+Weight Decay: 0.0
+Validation Split: 0.2
+
+Adversarial Training (PGD)
+Adversarial Attack: pdglinf
+Adversarial Iterations: 40
+Adversarial Epsilon: 0.3
+Adversarial Alpha: 0.01
+Random Start: True
+
+ProtoVAE Coefficients
+proto_ce_coef: 1.0
+proto_recon_coef: 1.0
+proto_kl_coef: 1.0
+proto_ortho_coef: 1.0
+
+SENN Coefficients
+senn_concept_reg: 1.0
+senn_robust_reg: 0.01
+senn_sparsity_reg: 2e-05
+
+B30 Coefficients
+b30_lambda_class: 20.0
+b30_lambda_ae: 1.0
+b30_lambda_1: 1.0
+b30_lambda_clus: 0.8
+b30_lambda_sep: 0.2
+
+Parameter Counts
+Total Parameters: 44903
+Trainable Parameters: 43403
+
+Save Root
+/kaggle/working/adv_finetune_components

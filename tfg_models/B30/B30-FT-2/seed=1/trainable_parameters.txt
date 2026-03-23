@@ -1,0 +1,17 @@
+encoder.encoder.0.conv.weight
+encoder.encoder.0.conv.bias
+encoder.encoder.1.conv.weight
+encoder.encoder.1.conv.bias
+encoder.encoder.2.conv.weight
+encoder.encoder.2.conv.bias
+encoder.encoder.3.conv.weight
+encoder.encoder.3.conv.bias
+decoder.decoder.0.dconv.weight
+decoder.decoder.0.dconv.bias
+decoder.decoder.1.dconv.weight
+decoder.decoder.1.dconv.bias
+decoder.decoder.2.dconv.weight
+decoder.decoder.2.dconv.bias
+decoder.decoder.3.dconv.weight
+decoder.decoder.3.dconv.bias
+fc.linear.weight
