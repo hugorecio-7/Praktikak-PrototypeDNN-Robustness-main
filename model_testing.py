@@ -583,7 +583,7 @@ def get_prototype_projection(model_path, device, pca):
     - reduced_prototypes (np.ndarray): 2D PCA projection of the prototypes.
     - prototype_imgs (torch.Tensor): Decoded prototype images.
     """
-    model = torch.load(model_path)
+    model = torch.load(model_path, map_location=device, weights_only=False)
     model.to(device)
     model.prototype_layer.prototype_distances = model.prototype_layer.prototype_distances.to(device)
     model.eval()
@@ -874,9 +874,9 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
         x_axis = np.arange(0, max_eps + 1, 1, dtype=np.int64) 
     dim = len(x_axis)  
     
-    # Ensure output directories exist
-    _ensure_dir("resultsTFG/Accuracy")
-    _ensure_dir("resultsTFG/Plot")
+    # # Ensure output directories exist
+    # _ensure_dir("resultsTFG/Accuracy")
+    # _ensure_dir("resultsTFG/Plot")
     
     # Get GPU name for logging
     gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"  # (añadido)
@@ -941,8 +941,15 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
                 X, B=bootstrap_B, alpha=bootstrap_alpha, seed=seed + idm, chunk=200
             )
 
+            acc_dir = f"resultsTFG/Accuracy/{attack_name}/{model_name}"
+            plot_dir = f"resultsTFG/Plot/{attack_name}/{model_name}"
+            
+            _ensure_dir(acc_dir)
+            _ensure_dir(plot_dir)
+
             # Save results to CSV
-            csv_path = f"resultsTFG/Accuracy/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_results.csv"
+            csv_path = f"{acc_dir}/maxeps({max_eps})_step({step})_results.csv"
+            #csv_path = f"resultsTFG/Accuracy/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_results.csv"
             df = pd.DataFrame({model_name: model_result}, index=x_axis)
             df.index.name = "Epsilon"
             df.to_csv(csv_path)
@@ -956,8 +963,9 @@ def adversarial_attacks_eps_plot_test(models, model_names, test_loader, attacks,
             plt.legend()
             plt.title(f"Adversarial Attack Accuracy vs. Epsilon\nModel: {model_name} | Attack: {attack_name}")
 
-            # Save plot
-            jpg_path = f"resultsTFG/Plot/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_plot.jpg"
+            # Save plot (Ruta actualizada)
+            jpg_path = f"{plot_dir}/maxeps({max_eps})_step({step})_plot.jpg"
+            #jpg_path = f"resultsTFG/Plot/{model_name}_{attack_name}_maxeps({max_eps})_step({step})_plot.jpg"
             plt.savefig(jpg_path, dpi=300)
             plt.close()
 
