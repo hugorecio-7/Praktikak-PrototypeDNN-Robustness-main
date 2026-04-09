@@ -1,5 +1,6 @@
 import argparse
 import csv
+from html import parser
 import json
 import os
 import random
@@ -1003,9 +1004,8 @@ def main():
     parser.add_argument("--run_tag", type=str, default="")
 
     parser.add_argument(
-    "--save_all_epochs",
-    action="store_true",
-    help="Save a checkpoint after every epoch (needed for ch6_pca_training.py).",
+    "--save_n_frames", type=int, default=0,
+    help="Save N lightweight state_dict checkpoints at evenly-spaced epochs. 0 = disabled.",
     )
 
     args = parser.parse_args()
@@ -1077,6 +1077,10 @@ def main():
 
     start_time = time.time()
 
+    frame_epochs = set(
+    int(round(e)) for e in np.linspace(1, cfg.epochs, args.save_n_frames)
+    ) if args.save_n_frames > 0 else set()
+
     for epoch in range(1, cfg.epochs + 1):
         epochs_run = epoch
         train_metrics = run_epoch(model, train_loader, cfg, optimizer)
@@ -1115,9 +1119,9 @@ def main():
                 break
 
         # --- Periodic checkpoint (used by PCA training analysis) ---
-        if args.save_all_epochs:
-            epoch_path = ckpt_dir / f"epoch_{epoch:03d}.pth"
-            torch.save({"epoch": epoch, "model_state": model.state_dict()}, epoch_path)
+        if epoch in frame_epochs:
+            frame_path = ckpt_dir / f"pca_frame_epoch_{epoch:03d}.pth"
+            torch.save({"epoch": epoch, "model_state": model.state_dict()}, frame_path)
     
     total_runtime_s = time.time() - start_time
 

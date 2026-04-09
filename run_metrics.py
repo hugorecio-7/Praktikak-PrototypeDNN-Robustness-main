@@ -242,7 +242,7 @@ def main():
                         help="Step size for epsilon grid (default: 0.025).")
 
     # Optional
-    parser.add_argument("--seed",            type=int,   default=0)
+    parser.add_argument("--seed",            type=int,   default=1)
     parser.add_argument("--run_id",          type=str,   default=None)
     parser.add_argument("--bootstrap_B",     type=int,   default=2000)
     parser.add_argument("--bootstrap_alpha", type=float, default=0.05)
