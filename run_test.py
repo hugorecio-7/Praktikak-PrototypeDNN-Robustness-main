@@ -138,39 +138,47 @@ def load_models(model_names):
     """Load models based on their names."""
     models = []
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     for name in model_names:
         model_path = paths[name]
+        
         if name in config_paths: # If the model is a SENN model, use the config file to instantiate it
             cfg_path = config_paths[name]
             model = instantiate_senn_from_config(cfg_path, device)
-            # Load weights
             state = torch.load(model_path, map_location=device)
             model.load_state_dict(state["model_state"])
-            print("Model SENN loaded")
+            print(f"Model {name} (SENN) loaded")
             model = SENNWrapper(model).to(device).eval()
+            
         elif name == "ProtoVAE": # If the model is a ProtoVAE model, load it using the ProtoVAEWrapper class
             model = model_protovae.ProtoVAE().to(device).eval()
             state = torch.load(model_path, map_location=device)
             model.load_state_dict(state)
             model = ProtoVAEWrapper(model).to(device).eval()
-            print("Model ProtoVAE loaded")
+            print(f"Model {name} (ProtoVAE) loaded")
+            
         elif name.startswith("ProtoVAE-FT-"):
             model = model_protovae.ProtoVAE().to(device)
             state = torch.load(model_path, map_location=device)
             model.load_state_dict(state["model_state"])
             model = ProtoVAEWrapper(model).to(device).eval()
-            print(f"Model {name} loaded")
+            print(f"Model {name} (ProtoVAE-FT) loaded")
+            
         elif name.startswith("B30-FT-"):
-            B30_BASE = "saved_model/mnist_model/mnist_cae_balanced_clstsep_1500_0.002_250_True_0.0_20_1_1_1_1.0_0.0_30_4_32_1/mnist_cae00750.pth"
+            B30_BASE = paths["B30"]
             model = torch.load(B30_BASE, map_location=device, weights_only=False)
             state = torch.load(model_path, map_location=device)
             model.load_state_dict(state["model_state"])
             model.eval()
-            print(f"Model {name} loaded")
+            print(f"Model {name} (B30-FT) loaded")
+            
         else: # For other models, load them directly
             model = torch.load(model_path, map_location=device)
             model.eval()
+            print(f"Model {name} loaded")
+            
         models.append(model)
+        
     return models, model_names
 
 # A function to retrieve a function dynamically from available modules, in this case, the adversarial attack functions
