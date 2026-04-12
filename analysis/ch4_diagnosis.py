@@ -35,7 +35,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from config import (
-    RC_PARAMS, METRIC_LABELS, FIGURES_ROOT, EPS_GRID, EPS_REF,
+    RC_PARAMS, METRIC_LABELS, FIGURES_ROOT, EPS_REF,
     DEFAULT_SEED, DEFAULT_RUN_ID,
 )
 from loaders import (
@@ -66,7 +66,6 @@ def _save(fig: plt.Figure, name: str, out_dir: str) -> None:
 
 def plot_degradation_panels(
     data_json: dict,
-    data_npz:  dict,
     model_name: str,
     out_dir: str,
 ) -> None:
@@ -130,7 +129,6 @@ def plot_degradation_panels(
 
 def plot_rpgd_histogram(
     data_json: dict,
-    data_npz:  dict,
     data_correct: dict,
     model_name: str,
     out_dir: str,

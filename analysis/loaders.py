@@ -247,7 +247,7 @@ def load_pca_frame_paths(
 
     Raises FileNotFoundError if the checkpoint directory does not exist.
     """
-    from config import CKPT_PATHS, PCA_FRAME_PREFIX
+    from config import CKPT_PATHS, PCA_FRAME_PREFIX, EPOCH_CKPT_DIR_TEMPLATE
 
     base_models = {"B30": "B30", "ProtoVAE": "ProtoVAE", "SENN": "SENN_0_01"}
     ckpt_dir = Path(EPOCH_CKPT_DIR_TEMPLATE.format(

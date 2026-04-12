@@ -37,6 +37,7 @@ CKPT_PATHS: dict[str, str] = {
     "B30-FT-2": "tfg_models/B30/B30-FT-2/seed=1/checkpoints/B30_B30-FT-2_seed1_best_val_adv_acc.pth",
     "B30-FT-3": "tfg_models/B30/B30-FT-3/seed=1/checkpoints/B30_B30-FT-3_seed1_best_val_adv_acc.pth",
     "B30-FT-E": "tfg_models/B30/B30-FT-E/seed=1/checkpoints/B30_B30-FT-E_seed1_best_val_adv_acc.pth",
+    "B30-FT-E-M": "tfg_models/B30/B30-FT-E-M/seed=1_loweps005_pca/checkpoints/B30_B30-FT-E_seed1_best_val_adv_acc.pth",
     # --- ProtoVAE ---
     "ProtoVAE":      "ProtoVAE/saved_models/mnist/model.pth",
     "ProtoVAE-FT-0": "tfg_models/ProtoVAE/ProtoVAE-FT-0/seed=1/checkpoints/ProtoVAE_ProtoVAE-FT-0_seed1_best_val_adv_acc.pth",
@@ -53,7 +54,6 @@ CKPT_PATHS: dict[str, str] = {
     "SENN_0_01_config": "SENN/configs/mnist_lambda1e-2_seed29.json",
 }
 
-# Epoch checkpoints directory (produced by --save_all_epochs in finetune script).
 # Used only by ch6_pca_training.py.
 EPOCH_CKPT_DIR_TEMPLATE = "tfg_models/{arch}/{variant}/seed={seed}/checkpoints/"
 PCA_FRAME_PREFIX = "pca_frame_epoch_"
@@ -64,7 +64,7 @@ PCA_FRAME_PREFIX = "pca_frame_epoch_"
 
 # Ordered list of variants per architecture (base model first).
 VARIANTS: dict[str, list[str]] = {
-    "B30":      ["B30",      "B30-FT-0",      "B30-FT-1",      "B30-FT-2",      "B30-FT-3",      "B30-FT-E"],
+    "B30":      ["B30",      "B30-FT-0",      "B30-FT-1",      "B30-FT-2",      "B30-FT-3",      "B30-FT-E", "B30-FT-E-M"],
     "ProtoVAE": ["ProtoVAE", "ProtoVAE-FT-0", "ProtoVAE-FT-1", "ProtoVAE-FT-2", "ProtoVAE-FT-3", "ProtoVAE-FT-E"],
     "SENN":     ["SENN_0_01","SENN-FT-0",     "SENN-FT-1",     "SENN-FT-2"],
 }
@@ -77,6 +77,7 @@ VARIANT_LABELS: dict[str, str] = {
     "B30-FT-2":      "FT-2",
     "B30-FT-3":      "FT-3",
     "B30-FT-E":      "FT-E",
+    "B30-FT-E-M":    "FT-E-M",
     "ProtoVAE":      "Base",
     "ProtoVAE-FT-0": "FT-0",
     "ProtoVAE-FT-1": "FT-1",
@@ -97,6 +98,7 @@ FREEZE_DESCRIPTION: dict[str, str] = {
     "B30-FT-2":      "Prototypes",
     "B30-FT-3":      "Classifier",
     "B30-FT-E":      "Protos + Classifier",
+    "B30-FT-E-M":    "Protos + Classifier (Mixed)",
     "ProtoVAE":      "—",
     "ProtoVAE-FT-0": "Nothing (full)",
     "ProtoVAE-FT-1": "Autoencoder",
@@ -153,6 +155,7 @@ VARIANT_COLORS: dict[str, str] = {
     "B30-FT-2":      "#ff7f0e",   # orange
     "B30-FT-3":      "#2ca02c",   # green
     "B30-FT-E":      "#9467bd",   # purple
+    "B30-FT-E-M":    "#8c564b",   # brown — distinguishable from purple FT-E
     "ProtoVAE":      "#555555",
     "ProtoVAE-FT-0": "#1f77b4",
     "ProtoVAE-FT-1": "#d62728",

@@ -1004,8 +1004,9 @@ def main():
     parser.add_argument("--run_tag", type=str, default="")
 
     parser.add_argument(
-    "--save_n_frames", type=int, default=0,
-    help="Save N lightweight state_dict checkpoints at evenly-spaced epochs. 0 = disabled.",
+        "--save_n_frames", type=int, default=0,
+        help="Save exactly N lightweight pca_frame checkpoints spaced between "
+         "epoch 0 and best_epoch (determined after early stopping). 0 = disabled.",
     )
 
     args = parser.parse_args()
@@ -1077,10 +1078,13 @@ def main():
 
     start_time = time.time()
 
-    frame_epochs = set(
-    int(round(e)) for e in np.linspace(1, cfg.epochs, args.save_n_frames)
-    ) if args.save_n_frames > 0 else set()
-
+    # Save base model as epoch 0 before any fine-tuning.
+    if args.save_n_frames > 0:
+        torch.save(
+            {"epoch": 0, "model_state": model.state_dict()},
+            ckpt_dir / "all_epoch_000.pth",
+        )
+    
     for epoch in range(1, cfg.epochs + 1):
         epochs_run = epoch
         train_metrics = run_epoch(model, train_loader, cfg, optimizer)
@@ -1112,18 +1116,64 @@ def main():
                 },
                 best_ckpt_path,
             )
+            
         else:
             patience_counter += 1
             if patience_counter >= cfg.early_stopping_patience:
                 print(f"Early stopping triggered after {epoch} epochs without improvement.")
                 break
-
-        # --- Periodic checkpoint (used by PCA training analysis) ---
-        if epoch in frame_epochs:
-            frame_path = ckpt_dir / f"pca_frame_epoch_{epoch:03d}.pth"
-            torch.save({"epoch": epoch, "model_state": model.state_dict()}, frame_path)
+        
+        # Lightweight checkpoint for every epoch (PCA frame candidates).
+        if args.save_n_frames > 0:
+            torch.save(
+                {"epoch": epoch, "model_state": model.state_dict()},
+                ckpt_dir / f"all_epoch_{epoch:03d}.pth",
+            )
     
     total_runtime_s = time.time() - start_time
+
+    # --- PCA frame selection (post-hoc, based on actual best_epoch) ----------
+    if args.save_n_frames > 0:
+
+        all_epoch_ckpts = sorted(
+            [
+                p for p in ckpt_dir.glob("all_epoch_*.pth")
+                if 1 <= int(p.stem.replace("all_epoch_", "")) <= best_epoch
+            ],
+            key=lambda p: int(p.stem.replace("all_epoch_", "")),
+        )
+        
+        # Delete checkpoints beyond best_epoch (not useful for PCA).
+        for p in ckpt_dir.glob("all_epoch_*.pth"):
+            epoch_num = int(p.stem.replace("all_epoch_", ""))
+            if epoch_num > best_epoch:
+                p.unlink()
+
+        # Epoch 0 is always served by CKPT_PATHS in load_pca_frame_paths.
+        ep0 = ckpt_dir / "all_epoch_000.pth"
+        if ep0.exists():
+            ep0.unlink()
+
+        if all_epoch_ckpts:
+            # Select n_frames indices with linspace from 0 to best_epoch.
+            # Epoch 0 = base model (CKPT_PATHS["B30"]), already available.
+            # So here we select from epoch 1..best_epoch.
+            n_available = len(all_epoch_ckpts)
+            n_select    = min(args.save_n_frames, n_available)
+            selected_idx = set(
+                int(round(i)) for i in np.linspace(0, n_available - 1, n_select)
+            )
+
+            for i, p in enumerate(all_epoch_ckpts):
+                if i in selected_idx:
+                    epoch_num  = int(p.stem.replace("all_epoch_", ""))
+                    frame_path = ckpt_dir / f"pca_frame_epoch_{epoch_num:03d}.pth"
+                    p.rename(frame_path)
+                    print(f"  PCA frame saved: {frame_path.name}")
+                else:
+                    p.unlink()   # delete non-selected checkpoint
+
+            print(f"  PCA frames: {n_select} frames up to best_epoch={best_epoch}.")
 
     best_state = torch.load(best_ckpt_path, map_location=device)
     model.load_state_dict(best_state["model_state"])
