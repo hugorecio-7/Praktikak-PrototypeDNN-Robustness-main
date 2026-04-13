@@ -2,7 +2,7 @@
   "model_name": "ProtoVAE",
   "variant": "ProtoVAE-FT-1",
   "seed": 1,
-  "epochs": 20,
+  "epochs": 50,
   "batch_size": 128,
   "lr": 0.001,
   "weight_decay": 0.0,
@@ -16,6 +16,10 @@
   "adv_random_start": true,
   "lambda_clean": 1.0,
   "lambda_adv": 1.0,
+  "adv_low_eps": null,
+  "adv_low_alpha": null,
+  "adv_low_steps": null,
+  "lambda_adv_low": 1.0,
   "proto_ce_coef": 1.0,
   "proto_recon_coef": 1.0,
   "proto_kl_coef": 1.0,
@@ -29,5 +33,6 @@
   "b30_lambda_clus": 0.8,
   "b30_lambda_sep": 0.2,
   "data_dir": "data",
-  "device": "cuda"
+  "device": "cuda",
+  "run_tag": ""
 }

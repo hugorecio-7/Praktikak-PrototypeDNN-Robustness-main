@@ -7,7 +7,7 @@
   "best_val_adv_acc": 0.02175,
   "best_epoch": 8,
   "epochs_run": 18,
-  "runtime_s": 667.6301851272583,
+  "runtime_s": 676.1759185791016,
   "best_checkpoint_path": "/kaggle/working/adv_finetune_components/B30/B30-FT-1/seed=1/checkpoints/B30_B30-FT-1_seed1_best_val_adv_acc.pth",
   "config": {
     "model_name": "B30",
@@ -27,6 +27,10 @@
     "adv_random_start": true,
     "lambda_clean": 1.0,
     "lambda_adv": 1.0,
+    "adv_low_eps": null,
+    "adv_low_alpha": null,
+    "adv_low_steps": null,
+    "lambda_adv_low": 1.0,
     "proto_ce_coef": 1.0,
     "proto_recon_coef": 1.0,
     "proto_kl_coef": 1.0,
@@ -40,7 +44,8 @@
     "b30_lambda_clus": 0.8,
     "b30_lambda_sep": 0.2,
     "data_dir": "data",
-    "device": "cuda"
+    "device": "cuda",
+    "run_tag": ""
   },
   "test_total_loss": 103.88478355407715,
   "test_clean_full_loss": 35.496844387054445,

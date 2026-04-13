@@ -7,7 +7,7 @@
   "best_val_adv_acc": 0.8965,
   "best_epoch": 6,
   "epochs_run": 16,
-  "runtime_s": 1203.179129600525,
+  "runtime_s": 1218.4840860366821,
   "best_checkpoint_path": "/kaggle/working/adv_finetune_components/ProtoVAE/ProtoVAE-FT-E/seed=1/checkpoints/ProtoVAE_ProtoVAE-FT-E_seed1_best_val_adv_acc.pth",
   "config": {
     "model_name": "ProtoVAE",
@@ -27,6 +27,10 @@
     "adv_random_start": true,
     "lambda_clean": 1.0,
     "lambda_adv": 1.0,
+    "adv_low_eps": null,
+    "adv_low_alpha": null,
+    "adv_low_steps": null,
+    "lambda_adv_low": 1.0,
     "proto_ce_coef": 1.0,
     "proto_recon_coef": 1.0,
     "proto_kl_coef": 1.0,
@@ -40,7 +44,8 @@
     "b30_lambda_clus": 0.8,
     "b30_lambda_sep": 0.2,
     "data_dir": "data",
-    "device": "cuda"
+    "device": "cuda",
+    "run_tag": ""
   },
   "test_total_loss": 5.411738477325439,
   "test_clean_full_loss": 2.5690575660705566,

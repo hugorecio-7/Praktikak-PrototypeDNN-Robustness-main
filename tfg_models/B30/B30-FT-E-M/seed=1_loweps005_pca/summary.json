@@ -7,7 +7,7 @@
   "best_val_adv_acc": 0.9111666666666667,
   "best_epoch": 14,
   "epochs_run": 24,
-  "runtime_s": 1278.8224096298218,
+  "runtime_s": 1276.331030845642,
   "best_checkpoint_path": "/kaggle/working/adv_finetune_components/B30/B30-FT-E/seed=1_loweps005_pca/checkpoints/B30_B30-FT-E_seed1_best_val_adv_acc.pth",
   "config": {
     "model_name": "B30",

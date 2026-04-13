@@ -17,6 +17,11 @@ Adversarial Iterations: 40
 Adversarial Epsilon: 0.3
 Adversarial Alpha: 0.01
 Random Start: True
+Low-epsilon branch enabled: False
+Low-epsilon branch epsilon: None
+Low-epsilon branch alpha: None
+Low-epsilon branch steps: None
+Low-epsilon branch weight: 1.0
 
 ProtoVAE Coefficients
 proto_ce_coef: 1.0
@@ -42,3 +47,4 @@ Trainable Parameters: 2773921
 
 Save Root
 /kaggle/working/adv_finetune_components
+Run Tag: 
