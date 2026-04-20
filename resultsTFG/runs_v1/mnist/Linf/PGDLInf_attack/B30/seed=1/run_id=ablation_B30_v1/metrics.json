@@ -397,5 +397,11 @@
   },
   "monotonicity_violations": [],
   "architecture": "B30",
-  "notes": "per_example_metrics.npz contains (N,E) float32 matrices for all internal metrics; per_example_correct.npz contains the (N,E) uint8 accuracy matrix."
+  "notes": "per_example_metrics.npz contains (N,E) float32 matrices for all internal metrics; per_example_correct.npz contains the (N,E) uint8 accuracy matrix.",
+  "cohesion_ratio": {
+    "mean": 0.1734803020954132,
+    "std": 0.19867749512195587,
+    "median": 0.12930631637573242,
+    "pct_below_1": 0.9931
+  }
 }

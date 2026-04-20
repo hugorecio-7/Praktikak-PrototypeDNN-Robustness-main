@@ -82,6 +82,71 @@ def PGDLInf_attack(batch_x, loss_f, iters, eps, alpha, random_start):
         
     return perturbed_batch_x
 
+import torch
+
+def PGDLInf_attack_test(batch_x, loss_f, iters, eps, alpha, random_start):
+    """
+    Performs the Projected Gradient Descent (PGD) attack with L-infinity norm on a batch of input images.
+    If random_start=True, runs a fixed number of restarts and keeps the batch with highest loss.
+
+    Args:
+        batch_x (torch.Tensor): The batch of input images.
+        loss_f (callable): The loss function to maximize.
+        iters (int): The number of iterations for the attack.
+        eps (float): The maximum perturbation allowed for each pixel.
+        alpha (float): The step size for each iteration of the attack.
+        random_start (bool): Whether to start the attack from a random point.
+
+    Returns:
+        torch.Tensor: The perturbed batch of input images.
+    """
+    iters = 100
+    alpha = eps / 4
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    ori_images = batch_x.clone().detach().to(device)
+    
+    # Número fijo de restarts
+    n_restarts = 10 if random_start else 1
+
+    best_perturbed_batch_x = None
+    best_loss = -float("inf")
+
+    for _ in range(n_restarts):
+        perturbed_batch_x = ori_images.clone().detach()
+
+        if random_start:
+            # Starting at a uniformly random point
+            perturbed_batch_x = perturbed_batch_x + torch.empty_like(perturbed_batch_x).uniform_(-eps, eps)
+            perturbed_batch_x = torch.clamp(perturbed_batch_x, min=0, max=1).detach()
+
+        for _ in range(iters):
+            perturbed_batch_x.requires_grad = True
+
+            loss = loss_f(batch_x=perturbed_batch_x)
+
+            input_gradients = torch.autograd.grad(loss, perturbed_batch_x)[0]
+            input_gradient_sign = torch.sign(input_gradients)
+
+            perturbed_batch_x = perturbed_batch_x.detach() + alpha * input_gradient_sign
+            delta = torch.clamp(perturbed_batch_x - ori_images, min=-eps, max=eps)
+            perturbed_batch_x = torch.clamp(ori_images + delta, min=0, max=1).detach()
+
+        # Evaluar cuál restart ha sido mejor
+        with torch.no_grad():
+            final_loss = loss_f(batch_x=perturbed_batch_x)
+
+            # Por si loss_f devolviera tensor en vez de escalar
+            if isinstance(final_loss, torch.Tensor):
+                final_loss = final_loss.mean().item()
+
+            if final_loss > best_loss:
+                best_loss = final_loss
+                best_perturbed_batch_x = perturbed_batch_x.clone().detach()
+
+    return best_perturbed_batch_x
+
 #Adapted version of https://github.com/Harry24k/adversarial-attacks-pytorch/blob/master/torchattacks/attacks/pgdl2.py
 def PGDL2_attack(batch_x, loss_f, iters, eps, alpha, random_start):
     """

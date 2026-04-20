@@ -7,7 +7,7 @@
   "run_id": "ablation_ProtoVAE_v1",
   "device": "cuda",
   "gpu_name": "Tesla P100-PCIE-16GB",
-  "runtime_s": 2589.3086109161377,
+  "runtime_s": 2585.5536148548126,
   "n_test": 10000,
   "eps": [
     0.0,
@@ -488,5 +488,11 @@
     }
   ],
   "architecture": "ProtoVAE",
-  "notes": "per_example_metrics.npz contains (N,E) float32 matrices for all internal metrics; per_example_correct.npz contains the (N,E) uint8 accuracy matrix."
+  "notes": "per_example_metrics.npz contains (N,E) float32 matrices for all internal metrics; per_example_correct.npz contains the (N,E) uint8 accuracy matrix.",
+  "cohesion_ratio": {
+    "mean": 0.28919678926467896,
+    "std": 0.2701181471347809,
+    "median": 0.17767184972763062,
+    "pct_below_1": 0.977
+  }
 }

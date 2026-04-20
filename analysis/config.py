@@ -12,12 +12,16 @@ All other scripts import from here and never hard-code paths or names.
 """
 
 from __future__ import annotations
+from pathlib import Path
 import numpy as np
+
+# Project root = parent of analysis/
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # =============================================================================
 # 1. Result tree — must match OUT_ROOT / DATASET_NAME / THREAT_NAME in run_metrics.py
 # =============================================================================
-OUT_ROOT      = "resultsTFG/runs_v1"
+OUT_ROOT      = str(PROJECT_ROOT / "resultsTFG" / "runs_v1")
 DATASET_NAME  = "mnist"
 THREAT_NAME   = "Linf"
 
@@ -191,4 +195,4 @@ RC_PARAMS: dict = {
 }
 
 # Output directory for saved figures, organised by chapter.
-FIGURES_ROOT = "analysis/figures"
+FIGURES_ROOT = str(PROJECT_ROOT / "analysis" / "figures")

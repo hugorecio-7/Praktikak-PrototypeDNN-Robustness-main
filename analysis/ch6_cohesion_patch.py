@@ -67,6 +67,9 @@ from config import (
     OUT_ROOT, DATASET_NAME, THREAT_NAME,
 )
 from loaders import load_json, _run_dir
+import sys
+path = str(Path(__file__).parent.parent)
+sys.path.append(path)
 from metric_extractor import extract_internals, get_proto_labels
 from metric_calculators import calc_cohesion_ratio
 

@@ -159,7 +159,7 @@ def plot_metric_curves(
     """
     metrics = METRICS_BY_ARCH[arch]
     n_metrics = len(metrics)
-    ncols = min(n_metrics, 3)
+    ncols = 2
     nrows = (n_metrics + ncols - 1) // ncols
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows), squeeze=False)
@@ -232,7 +232,7 @@ def build_ablation_table(
     Build master ablation table for one architecture.
 
     Columns depend on architecture:
-      All     : Variant, Frozen, Clean Acc, Adv Acc, EarlyRate*, frac_never_fail, E[r-]
+      All     : Variant, Frozen, Clean Acc, Adv Acc, EarlyRate*, E[r-]
       B30/VAE : + Δm_proto@EPS_REF,  ΔR_enc@EPS_REF
       SENN    : + ΔR_param@EPS_REF   (replaces Δm_proto + ΔR_enc)
 
@@ -297,7 +297,6 @@ def build_ablation_table(
             row[r"$\Delta R_{param}$"] = round(R_param_mean - base_R_param, 4)
 
         row["EarlyRate"]       = round(early_rate, 4) if early_rate is not None else float("nan")
-        row["frac_never_fail"] = round(rob["frac_never_fail"], 4)
         row[r"$E[r_{PGD}^-]$"] = round(rob["mean_r_minus_all"], 4)
 
         rows.append(row)
@@ -413,7 +412,6 @@ def build_crossarch_table(
                 "Clean Acc":         round(float(acc[0]),              4),
                 f"Adv Acc ({eps_ref})": round(float(acc[eps_idx_ref]), 4),
                 "EarlyRate":         round(early_rate, 4) if early_rate is not None else float("nan"),
-                "frac_never_fail":   round(rob["frac_never_fail"],    4),
                 r"$E[r_{PGD}^-]$":  round(rob["mean_r_minus_all"],   4),
             })
 

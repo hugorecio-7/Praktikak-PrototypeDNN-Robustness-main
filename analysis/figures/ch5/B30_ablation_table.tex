@@ -1,0 +1,17 @@
+\begin{table}
+\caption{Ablation results — B30 ablation table}
+\label{tab:B30_ablation_table}
+\begin{tabular}{llrrrrrr}
+\toprule
+Variant & Frozen & Clean Acc & Adv Acc (0.3) & $\Delta\tilde{m}_{proto}$ & $\Delta R_{enc}$ & EarlyRate & $E[r_{PGD}^-]$ \\
+\midrule
+Base & — & 0.9926 & 0.0000 & 0.0000 & 0.0000 & 0.0222 & 0.0186 \\
+FT-0 & Nothing (full) & 0.9852 & 0.9199 & 0.6239 & -2.0685 & 0.0965 & 0.3485 \\
+FT-1 & Autoencoder & 0.8869 & 0.0190 & 0.1277 & -0.3621 & 0.2009 & 0.0173 \\
+FT-2 & Prototypes & 0.9868 & 0.9101 & 0.6091 & -2.0559 & 0.1127 & 0.3300 \\
+FT-3 & Classifier & 0.9854 & 0.9144 & 0.5646 & -2.0829 & 0.0840 & 0.3532 \\
+FT-E & Protos + Classifier & 0.9799 & 0.9006 & 0.4791 & -2.0230 & 0.1436 & 0.2712 \\
+FT-E-M & Protos + Classifier (Mixed) & 0.9838 & 0.9057 & 0.5330 & -2.1272 & 0.0653 & 0.3295 \\
+\bottomrule
+\end{tabular}
+\end{table}

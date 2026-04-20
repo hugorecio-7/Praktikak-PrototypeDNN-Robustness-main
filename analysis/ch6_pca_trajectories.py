@@ -59,6 +59,9 @@ from config import (
     RC_PARAMS, FIGURES_ROOT, CKPT_PATHS,
     DEFAULT_SEED, VARIANT_LABELS, VARIANT_COLORS,
 )
+import sys
+path = str(Path(__file__).parent.parent)
+sys.path.append(path)
 from metric_extractor import extract_internals, get_proto_labels
 
 

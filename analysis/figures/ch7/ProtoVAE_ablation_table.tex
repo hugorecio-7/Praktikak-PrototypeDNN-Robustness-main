@@ -1,0 +1,16 @@
+\begin{table}
+\caption{Ablation results — ProtoVAE ablation table}
+\label{tab:ProtoVAE_ablation_table}
+\begin{tabular}{llrrrrrr}
+\toprule
+Variant & Frozen & Clean Acc & Adv Acc (0.3) & $\Delta\tilde{m}_{proto}$ & $\Delta R_{enc}$ & EarlyRate & $E[r_{PGD}^-]$ \\
+\midrule
+Base & — & 0.9916 & 0.0022 & 0.0000 & 0.0000 & 0.1073 & 0.0598 \\
+FT-0 & Nothing (full) & 0.9877 & 0.9386 & 1.2955 & -4.6731 & 0.0205 & 0.3257 \\
+FT-1 & Autoencoder & 0.9714 & 0.0008 & 0.0058 & -2.9243 & 0.1201 & 0.0708 \\
+FT-2 & Prototypes & 0.9877 & 0.9409 & 1.2190 & -4.6554 & 0.0227 & 0.3605 \\
+FT-3 & Classifier & 0.9808 & 0.9315 & 1.3567 & -4.6874 & 0.0671 & 0.3214 \\
+FT-E & Protos + Classifier & 0.9831 & 0.8701 & 1.1922 & -4.5681 & 0.0862 & 0.3301 \\
+\bottomrule
+\end{tabular}
+\end{table}

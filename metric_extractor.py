@@ -35,13 +35,16 @@ def _unwrap_base(model: nn.Module) -> nn.Module:
     return model.base if hasattr(model, "base") else model
 
 
+def _proto_model(model: nn.Module) -> nn.Module:
+    """Return the ProtoVAE module whether the caller passed a wrapper or the raw model."""
+    return _unwrap_base(model)
+
+
 def _is_protovae_model(model: nn.Module) -> bool:
-    base = _unwrap_base(model)
+    base = _proto_model(model)
     return (
-        hasattr(model, "base")
-        and hasattr(base, "prototype_class_identity")
+        hasattr(base, "prototype_class_identity")
         and hasattr(base, "prototype_vectors")
-        and hasattr(base, "pred_class")
         and hasattr(base, "calc_sim_scores")
         and hasattr(base, "decoder")
     )
@@ -50,8 +53,7 @@ def _is_protovae_model(model: nn.Module) -> bool:
 def _is_senn_model(model: nn.Module) -> bool:
     base = _unwrap_base(model)
     return (
-        hasattr(model, "base")
-        and hasattr(base, "conceptizer")
+        hasattr(base, "conceptizer")
         and hasattr(base, "parameterizer")
         and hasattr(base, "aggregator")
     )
@@ -69,9 +71,9 @@ def extract_internals(model: nn.Module, x: torch.Tensor) -> dict:
     """
     with torch.no_grad():
         if _is_protovae_model(model):
-            return _extract_protovae(model.base, x)
+            return _extract_protovae(_proto_model(model), x)
         elif _is_senn_model(model):
-            return _extract_senn(model.base, x)
+            return _extract_senn(_unwrap_base(model), x)
         else:
             return _extract_b30(model, x)
 
@@ -107,7 +109,7 @@ def get_proto_labels(model: nn.Module) -> torch.Tensor:
         )
 
     if _is_protovae_model(model):
-        return model.base.prototype_class_identity.detach().argmax(dim=1).cpu()
+        return _proto_model(model).prototype_class_identity.detach().argmax(dim=1).cpu()
 
     return model.fc.linear.weight.detach().argmin(dim=0).cpu()
 

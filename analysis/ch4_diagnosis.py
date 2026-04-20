@@ -129,7 +129,6 @@ def plot_degradation_panels(
 
 def plot_rpgd_histogram(
     data_json: dict,
-    data_correct: dict,
     model_name: str,
     out_dir: str,
 ) -> None:
@@ -213,10 +212,10 @@ def main() -> None:
     print_summary(data_json)
 
     print("Generating Figure 1 — degradation panels …")
-    plot_degradation_panels(data_json, data_npz, args.model, out_dir)
+    plot_degradation_panels(data_json, args.model, out_dir)
 
     print("Generating Figure 2 — r_PGD- histogram …")
-    plot_rpgd_histogram(data_json, data_npz, data_correct, args.model, out_dir)
+    plot_rpgd_histogram(data_json, args.model, out_dir)
 
     print("\nDone. All figures saved to:", out_dir)
 

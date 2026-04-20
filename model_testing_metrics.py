@@ -434,7 +434,7 @@ def adversarial_metrics_eps_collect(
                 _ensure_dir(d)
 
             # ---- Legacy CSV (mirrors original) --------------------------
-            csv_path = f"{acc_dir}/maxeps({max_eps})_step({step})_seed{seed}_results.csv"
+            csv_path = f"{acc_dir}/maxeps({max_eps})_step({step})_seed{seed}_run{run_id}_results.csv"
             df = pd.DataFrame({model_name: acc_curve}, index=x_axis)
             df.index.name = "Epsilon"
             df.to_csv(csv_path)
@@ -442,7 +442,7 @@ def adversarial_metrics_eps_collect(
             print(f"Accuracy results saved to {csv_path}")
 
             # ---- Legacy plot (mirrors original) -------------------------
-            jpg_path = f"{plot_dir}/maxeps({max_eps})_step({step})_seed{seed}_plot.jpg"
+            jpg_path = f"{plot_dir}/maxeps({max_eps})_step({step})_seed{seed}_run{run_id}_plot.jpg"
             plt.figure(figsize=(8, 6))
             plt.plot(x_axis, acc_curve, label=model_name)
             plt.scatter(x_axis, acc_curve)
