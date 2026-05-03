@@ -17,7 +17,7 @@ Figure 2  (ch4_rPGD_histogram.pdf)
 
 Console output
 --------------
-    EarlyRate, frac_never_fail, E[r_PGD-], E[r_PGD+] for the clean model.
+    ICR, E[r_PGD-], E[r_PGD+] for the clean model.
 
 Usage
 -----
@@ -33,15 +33,26 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
 
 from config import (
     RC_PARAMS, METRIC_LABELS, FIGURES_ROOT, EPS_REF,
     DEFAULT_SEED, DEFAULT_RUN_ID,
 )
 from loaders import (
-    load_json, load_npz, load_correct,
+    load_json, load_npz, load_correct, load_rpgd_binary_search,
     get_acc_curve, get_mean_metric_curve, get_robustness_interval,
+    get_rpgd_min,
 )
+
+
+def _fmt_eps(value: float) -> str:
+    """Format epsilon values without hiding very small non-zero radii."""
+    if np.isnan(value):
+        return "N/A"
+    if abs(value) < 1e-3:
+        return f"{value:.6f}"
+    return f"{value:.4f}"
 
 
 # =============================================================================
@@ -131,6 +142,7 @@ def plot_rpgd_histogram(
     data_json: dict,
     model_name: str,
     out_dir: str,
+    rpgd_data: dict[str, np.ndarray] | None = None,
 ) -> None:
     """
     Histogram of per-sample r_PGD- (lower robustness bound).
@@ -139,28 +151,61 @@ def plot_rpgd_histogram(
     Samples that never fail are placed at eps_max.
     """
     rob = get_robustness_interval(data_json)
-    hist_data = rob["hist_r_minus"]
-    counts    = np.array(hist_data["counts"])
-    edges     = np.array(hist_data["bin_edges"])
     mean_all  = rob["mean_r_minus_all"]
-    frac_never = rob["frac_never_fail"]
+    min_all   = get_rpgd_min(data_json)
 
     fig, ax = plt.subplots(figsize=(7, 4))
-    ax.bar(
-        edges[:-1], counts,
-        width=np.diff(edges),
-        align="edge",
-        color="#1f77b4", alpha=0.75, edgecolor="white",
-    )
+
+    values = None
+    if rpgd_data is not None and "r_pgd" in rpgd_data:
+        values = np.asarray(rpgd_data["r_pgd"], dtype=np.float64)
+        values = values[np.isfinite(values)]
+
+    if values is not None and values.size > 0:
+        data_min = float(values.min())
+        data_max = float(values.max())
+        if data_min == data_max:
+            pad = max(data_min * 0.05, 1e-4)
+            hist_range = (max(0.0, data_min - pad), data_max + pad)
+        else:
+            pad = 0.03 * (data_max - data_min)
+            hist_range = (max(0.0, data_min - pad), data_max + pad)
+
+        n_bins = int(np.clip(np.sqrt(values.size), 12, 45))
+        ax.hist(
+            values,
+            bins=n_bins,
+            range=hist_range,
+            color="#1f77b4",
+            alpha=0.75,
+            edgecolor="white",
+        )
+        ax.set_xlim(hist_range)
+        ax.xaxis.set_major_formatter(FormatStrFormatter("%.4f"))
+    else:
+        hist_data = rob["hist_r_minus"]
+        counts    = np.array(hist_data["counts"])
+        edges     = np.array(hist_data["bin_edges"])
+        ax.bar(
+            edges[:-1], counts,
+            width=np.diff(edges),
+            align="edge",
+            color="#1f77b4", alpha=0.75, edgecolor="white",
+        )
+
     ax.axvline(
         mean_all, color="#d62728", linewidth=2.0, linestyle="--",
-        label=rf"$E[r_{{PGD}}^-]$ = {mean_all:.3f}",
+        label=rf"$E[r_{{PGD}}^-]$ = {_fmt_eps(mean_all)}",
     )
+    if not np.isnan(min_all):
+        ax.axvline(
+            min_all, color="#222222", linewidth=1.6, linestyle=":",
+            label=rf"$\min(r_{{PGD}}^-)$ = {_fmt_eps(min_all)}",
+        )
     ax.set_xlabel(r"$r_{PGD}^-$ (lower robustness bound per sample)")
     ax.set_ylabel("Sample count")
     ax.set_title(
         rf"Distribution of $r_{{PGD}}^-$ — {model_name}"
-        f"\n(never-fail fraction = {frac_never:.1%})"
     )
     ax.legend()
     plt.tight_layout()
@@ -173,7 +218,7 @@ def plot_rpgd_histogram(
 
 def print_summary(data_json: dict) -> None:
     rob  = get_robustness_interval(data_json)
-    er   = data_json.get("early_rate")
+    icr  = data_json.get("icr")
     arch = data_json.get("architecture", "?")
 
     print("\n" + "=" * 55)
@@ -181,10 +226,12 @@ def print_summary(data_json: dict) -> None:
     print(f"  Model      : {data_json['model']}  [{arch}]")
     print(f"  Attack     : {data_json['attack']}")
     print("=" * 55)
-    print(f"  EarlyRate              : {er:.4f}" if er is not None else "  EarlyRate              : N/A")
-    print(f"  frac_never_fail        : {rob['frac_never_fail']:.4f}")
+    print(f"  ICR                    : {icr:.4f}" if icr is not None else "  ICR                    : N/A")
     print(f"  E[r_PGD-] (all)        : {rob['mean_r_minus_all']:.4f}")
     print(f"  E[r_PGD-] (failing)    : {rob['mean_r_minus_failing']:.4f}")
+    min_rpgd = get_rpgd_min(data_json)
+    if not np.isnan(min_rpgd):
+        print(f"  min(r_PGD-)            : {_fmt_eps(min_rpgd)}")
     print(f"  E[r_PGD+] (failing)    : {rob['mean_r_plus']:.4f}")
     print("=" * 55 + "\n")
 
@@ -208,6 +255,10 @@ def main() -> None:
     data_json    = load_json(args.model,    args.attack, args.seed, args.run_id)
     data_npz     = load_npz(args.model,     args.attack, args.seed, args.run_id)
     data_correct = load_correct(args.model, args.attack, args.seed, args.run_id)
+    try:
+        data_rpgd = load_rpgd_binary_search(args.model, args.attack, args.seed, args.run_id)
+    except FileNotFoundError:
+        data_rpgd = None
 
     print_summary(data_json)
 
@@ -215,7 +266,7 @@ def main() -> None:
     plot_degradation_panels(data_json, args.model, out_dir)
 
     print("Generating Figure 2 — r_PGD- histogram …")
-    plot_rpgd_histogram(data_json, args.model, out_dir)
+    plot_rpgd_histogram(data_json, args.model, out_dir, data_rpgd)
 
     print("\nDone. All figures saved to:", out_dir)
 

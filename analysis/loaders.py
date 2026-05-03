@@ -85,8 +85,8 @@ def load_json(
     Key fields of interest:
         "acc"                        : list[float] — accuracy per epsilon
         "eps"                        : list[float] — epsilon grid
-        "early_rate"                 : float | None
-        "early_rate_senn"            : float | None
+        "icr"                        : float | None
+        "icr_senn"                   : float | None
         "tau_param"                  : float | None
         "empirical_robustness_interval": dict
         "mean_internal_metrics"      : dict[metric_name → list[float]]
@@ -135,6 +135,25 @@ def load_correct(
     path = _run_dir(model_name, attack, seed, run_id) / "per_example_correct.npz"
     if not path.exists():
         raise FileNotFoundError(f"[loaders] per_example_correct.npz not found:\n  {path}")
+    data = np.load(path)
+    return dict(data)
+
+
+def load_rpgd_binary_search(
+    model_name: str,
+    attack: str   = "PGDLInf_attack",
+    seed: int     = DEFAULT_SEED,
+    run_id: Optional[str] = DEFAULT_RUN_ID,
+) -> dict[str, np.ndarray]:
+    """
+    Load r_pgd_binary_search.npz for one model run.
+
+    Returns per-sample refined r-PGD values when the binary-search updater has
+    been run. Samples misclassified at eps=0 are stored as NaN in r_pgd.
+    """
+    path = _run_dir(model_name, attack, seed, run_id) / "r_pgd_binary_search.npz"
+    if not path.exists():
+        raise FileNotFoundError(f"[loaders] r_pgd_binary_search.npz not found:\n  {path}")
     data = np.load(path)
     return dict(data)
 
@@ -216,9 +235,35 @@ def get_robustness_interval(data_json: dict) -> dict:
     Return the empirical robustness interval dict from metrics.json.
 
     Keys: mean_r_minus_failing, mean_r_plus, mean_r_minus_all, frac_never_fail,
-          hist_r_minus (counts + bin_edges).
+          hist_r_minus (counts + bin_edges). For PGDLInf_attack runs updated
+          with binary search, mean_r_minus_all is the refined mean r-PGD and
+          min_r_minus_all is the refined worst-case r-PGD.
     """
     return data_json["empirical_robustness_interval"]
+
+
+def get_rpgd_mean(data_json: dict) -> float:
+    """Return the current mean r-PGD used by the analysis tables."""
+    rob = get_robustness_interval(data_json)
+    return float(rob["mean_r_minus_all"])
+
+
+def get_rpgd_min(data_json: dict) -> float:
+    """
+    Return the refined worst-case r-PGD when available.
+
+    Older metrics.json files and non-PGD attacks may not have the binary-search
+    field, so callers get NaN instead of a hard failure.
+    """
+    rob = get_robustness_interval(data_json)
+    if "min_r_minus_all" in rob:
+        return float(rob["min_r_minus_all"])
+
+    rpgd = data_json.get("r_pgd_binary_search") or {}
+    if "min_r_pgd" in rpgd:
+        return float(rpgd["min_r_pgd"])
+
+    return float("nan")
 
 
 def get_scalar_at_eps(

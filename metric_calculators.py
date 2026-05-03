@@ -14,8 +14,9 @@ Sign convention for margins
 
 The *early failure* signature — the core of RQ1 — is the regime where
 m_proto < 0 AND m_pred > 0: the semantic representation has already broken
-while the classifier still outputs the right label. EarlyRate quantifies
-how often this happens across the test set and all epsilons.
+while the classifier still outputs the right label. ICR (Interpretability
+Collapse Rate) quantifies how often this happens across the test set and all
+epsilons.
 
 Note on SENN logits
 -------------------
@@ -302,13 +303,320 @@ def compute_empirical_robustness_interval(
     }
 
 
-def compute_early_rate(
+def _pgd_linf_attack_per_sample_eps(
+    model: torch.nn.Module,
+    batch_x: torch.Tensor,
+    batch_y: torch.Tensor,
+    eps: torch.Tensor,
+    iters: int,
+    alpha: float,
+    random_start: bool,
+) -> torch.Tensor:
+    """
+    PGD-Linf attack with a different epsilon for each sample in the batch.
+
+    This mirrors PGDLInf_attack's default CE objective and fixed alpha, but it
+    accepts a vector of epsilons so the r-PGD binary search can stay batched.
+    """
+    device = batch_x.device
+    eps = eps.to(device=device, dtype=batch_x.dtype).view(-1, *([1] * (batch_x.ndim - 1)))
+
+    ori_images = batch_x.clone().detach()
+    perturbed_batch_x = ori_images.clone().detach()
+
+    if random_start:
+        perturbed_batch_x = perturbed_batch_x + torch.empty_like(perturbed_batch_x).uniform_(-1.0, 1.0) * eps
+        perturbed_batch_x = torch.clamp(perturbed_batch_x, min=0, max=1).detach()
+
+    loss_function = torch.nn.CrossEntropyLoss()
+
+    for _ in range(int(iters)):
+        perturbed_batch_x.requires_grad_(True)
+        logits = model(perturbed_batch_x)
+        loss = loss_function(logits, batch_y)
+        gradients = torch.autograd.grad(loss, perturbed_batch_x)[0]
+
+        perturbed_batch_x = perturbed_batch_x.detach() + float(alpha) * torch.sign(gradients)
+        delta = torch.clamp(perturbed_batch_x - ori_images, min=-eps, max=eps)
+        perturbed_batch_x = torch.clamp(ori_images + delta, min=0, max=1).detach()
+
+    return perturbed_batch_x
+
+
+def _predict_correct(
+    model: torch.nn.Module,
+    batch_x: torch.Tensor,
+    batch_y: torch.Tensor,
+) -> np.ndarray:
+    with torch.no_grad():
+        logits = model(batch_x)
+        preds = torch.argmax(logits, dim=1)
+    return (preds == batch_y).detach().cpu().numpy().astype(bool)
+
+
+def _coarse_correct_from_model(
+    model: torch.nn.Module,
+    data_loader,
+    eps_grid: np.ndarray,
+    pgd_iters: int,
+    pgd_alpha: float,
+    pgd_random_start: bool,
+    verbose: bool,
+) -> np.ndarray:
+    cols: list[list[np.ndarray]] = [[] for _ in range(len(eps_grid))]
+    device = next(model.parameters()).device
+
+    for batch_idx, (batch_x, batch_y) in enumerate(data_loader):
+        batch_x = batch_x.to(device)
+        batch_y = batch_y.to(device)
+
+        cols[0].append(_predict_correct(model, batch_x, batch_y))
+
+        for ide in range(1, len(eps_grid)):
+            eps_value = float(eps_grid[ide])
+            eps_batch = torch.full((batch_x.shape[0],), eps_value, device=device, dtype=batch_x.dtype)
+            x_adv = _pgd_linf_attack_per_sample_eps(
+                model=model,
+                batch_x=batch_x,
+                batch_y=batch_y,
+                eps=eps_batch,
+                iters=pgd_iters,
+                alpha=pgd_alpha,
+                random_start=pgd_random_start,
+            )
+            cols[ide].append(_predict_correct(model, x_adv, batch_y))
+
+        if verbose:
+            print(f"    coarse r-PGD grid batch {batch_idx + 1}/{len(data_loader)}")
+
+    return np.stack([np.concatenate(col, axis=0) for col in cols], axis=1)
+
+
+def _summarize_r_pgd(
+    r_pgd: np.ndarray,
+    failing_mask: np.ndarray,
+    max_eps: float,
+    clean_correct_mask: np.ndarray,
+    n_bins: int = 20,
+) -> dict:
+    r_pgd = r_pgd.astype(np.float32)
+    clean_correct_mask = clean_correct_mask.astype(bool)
+    valid_mask = clean_correct_mask & np.isfinite(r_pgd)
+    valid_failing_mask = valid_mask & failing_mask.astype(bool)
+
+    valid_r_pgd = r_pgd[valid_mask]
+    mean_all = float(valid_r_pgd.mean()) if valid_r_pgd.size else float("nan")
+    mean_failing = (
+        float(r_pgd[valid_failing_mask].mean())
+        if valid_failing_mask.any()
+        else float(max_eps)
+    )
+    min_r_pgd = float(valid_r_pgd.min()) if valid_r_pgd.size else float("nan")
+    counts, edges = np.histogram(valid_r_pgd, bins=n_bins, range=(0.0, float(max_eps)))
+
+    return {
+        "mean_r_pgd": mean_all,
+        "mean_r_pgd_failing": mean_failing,
+        "min_r_pgd": min_r_pgd,
+        "frac_never_fail": (
+            float((valid_mask & ~failing_mask.astype(bool)).sum() / valid_mask.sum())
+            if valid_mask.any()
+            else float("nan")
+        ),
+        "n_total": int(r_pgd.size),
+        "n_clean_correct": int(valid_mask.sum()),
+        "n_excluded_clean_incorrect": int((~clean_correct_mask).sum()),
+        "frac_clean_correct": (
+            float(clean_correct_mask.mean()) if clean_correct_mask.size else float("nan")
+        ),
+        "hist_r_pgd": {
+            "counts": counts.tolist(),
+            "bin_edges": edges.tolist(),
+        },
+    }
+
+
+def compute_r_pgd_binary_search(
+    model: torch.nn.Module,
+    data_loader,
+    eps_grid: np.ndarray | None = None,
+    coarse_correct: np.ndarray | None = None,
+    eps_min: float = 0.0,
+    eps_max: float = 0.4,
+    pgd_iters: int = 80,
+    pgd_alpha: float = 0.01,
+    pgd_random_start: bool = True,
+    binary_steps: int = 10,
+    tol: float | None = None,
+    seed: int | None = None,
+    verbose: bool = False,
+    **legacy_kwargs,
+) -> dict:
+    """
+    Refine r-PGD with binary search inside the interval found by the epsilon grid.
+
+    For every sample, the coarse grid first gives:
+        low  = last epsilon where all tested epsilons up to that point are correct
+        high = first epsilon where the sample fails
+
+    The binary search only evaluates epsilons in [low, high]. The returned r_pgd
+    is the final lower bound, i.e. the largest tested epsilon that still keeps
+    the sample correctly classified. Samples that never fail on the coarse grid
+    keep r_pgd = eps_grid[-1].
+    """
+    if legacy_kwargs and verbose:
+        ignored = ", ".join(sorted(legacy_kwargs.keys()))
+        print(f"    Ignoring legacy r-PGD options: {ignored}")
+
+    was_training = model.training
+    model.eval()
+
+    if seed is not None:
+        torch.manual_seed(int(seed))
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(int(seed))
+
+    if eps_grid is None:
+        if eps_max < eps_min:
+            raise ValueError(f"eps_max ({eps_max}) must be >= eps_min ({eps_min}).")
+        step = legacy_kwargs.get("sweep_step", None)
+        if step is None or float(step) <= 0:
+            step = eps_max - eps_min
+        eps_grid = np.arange(float(eps_min), float(eps_max) + 1e-12, float(step), dtype=np.float64)
+        if eps_grid[-1] < float(eps_max):
+            eps_grid = np.append(eps_grid, float(eps_max))
+    else:
+        eps_grid = np.asarray(eps_grid, dtype=np.float64)
+
+    if eps_grid.ndim != 1 or len(eps_grid) < 2:
+        raise ValueError("eps_grid must be a 1D array with at least two epsilon values.")
+    if not np.all(np.diff(eps_grid) > 0):
+        raise ValueError("eps_grid must be strictly increasing.")
+
+    eps_max = float(eps_grid[-1])
+
+    if coarse_correct is None:
+        coarse_correct = _coarse_correct_from_model(
+            model=model,
+            data_loader=data_loader,
+            eps_grid=eps_grid,
+            pgd_iters=pgd_iters,
+            pgd_alpha=pgd_alpha,
+            pgd_random_start=pgd_random_start,
+            verbose=verbose,
+        )
+    else:
+        coarse_correct = np.asarray(coarse_correct).astype(bool)
+
+    if coarse_correct.ndim != 2 or coarse_correct.shape[1] != len(eps_grid):
+        raise ValueError(
+            "coarse_correct must have shape (N, len(eps_grid)); "
+            f"got {coarse_correct.shape}, len(eps_grid)={len(eps_grid)}."
+        )
+
+    n_samples = coarse_correct.shape[0]
+    clean_correct_mask = coarse_correct[:, 0].astype(bool)
+    low = np.full(n_samples, np.nan, dtype=np.float64)
+    high = np.full(n_samples, np.nan, dtype=np.float64)
+    failing_mask = np.zeros(n_samples, dtype=bool)
+
+    for i in range(n_samples):
+        if not clean_correct_mask[i]:
+            continue
+
+        row = coarse_correct[i]
+        if row.all():
+            low[i] = eps_max
+            high[i] = eps_max
+            continue
+
+        failing_mask[i] = True
+        first_fail_idx = int(np.argmax(~row))
+        if first_fail_idx == 0:
+            low[i] = 0.0
+            high[i] = 0.0
+        else:
+            low[i] = float(eps_grid[first_fail_idx - 1])
+            high[i] = float(eps_grid[first_fail_idx])
+
+    device = next(model.parameters()).device
+    start = 0
+    for batch_idx, (batch_x, batch_y) in enumerate(data_loader):
+        batch_x = batch_x.to(device)
+        batch_y = batch_y.to(device)
+        end = start + batch_x.shape[0]
+
+        local_low = low[start:end].copy()
+        local_high = high[start:end].copy()
+
+        for step_idx in range(int(binary_steps)):
+            active = local_high > local_low
+            if tol is not None:
+                active &= (local_high - local_low) > float(tol)
+            active_idx = np.flatnonzero(active)
+            if active_idx.size == 0:
+                break
+
+            mid_np = (local_low[active_idx] + local_high[active_idx]) / 2.0
+            mid = torch.as_tensor(mid_np, device=device, dtype=batch_x.dtype)
+
+            x_adv = _pgd_linf_attack_per_sample_eps(
+                model=model,
+                batch_x=batch_x[active_idx],
+                batch_y=batch_y[active_idx],
+                eps=mid,
+                iters=pgd_iters,
+                alpha=pgd_alpha,
+                random_start=pgd_random_start,
+            )
+            correct_mid = _predict_correct(model, x_adv, batch_y[active_idx])
+
+            local_low[active_idx[correct_mid]] = mid_np[correct_mid]
+            local_high[active_idx[~correct_mid]] = mid_np[~correct_mid]
+
+            if tol is not None and np.all((local_high - local_low) <= float(tol)):
+                break
+
+        low[start:end] = local_low
+        high[start:end] = local_high
+        start = end
+
+        if verbose:
+            print(f"    binary r-PGD batch {batch_idx + 1}/{len(data_loader)}")
+
+    if was_training:
+        model.train()
+
+    r_pgd = low.astype(np.float32)
+    summary = _summarize_r_pgd(
+        r_pgd=r_pgd,
+        failing_mask=failing_mask,
+        max_eps=eps_max,
+        clean_correct_mask=clean_correct_mask,
+        n_bins=min(len(eps_grid), 20),
+    )
+    summary.update({
+        "r_pgd": r_pgd,
+        "r_pgd_upper": high.astype(np.float32),
+        "failing_mask": failing_mask.astype(np.uint8),
+        "clean_correct_mask": clean_correct_mask.astype(np.uint8),
+        "eps_grid": eps_grid.astype(np.float32),
+        "binary_steps": int(binary_steps),
+        "tol": None if tol is None else float(tol),
+        "pgd_iters": int(pgd_iters),
+        "pgd_alpha": float(pgd_alpha),
+        "pgd_random_start": bool(pgd_random_start),
+    })
+    return summary
+
+
+def compute_icr(
     m_proto_matrix: np.ndarray,
     m_pred_matrix:  np.ndarray,
 ) -> float:
     """
-    EarlyRate — fraction of test samples that exhibit early interpretability
-    failure at any epsilon in the sweep.
+    ICR (Interpretability Collapse Rate) — fraction of test samples that exhibit interpretability collapse
+    at any epsilon in the sweep.
 
     Interpretation of the condition
     --------------------------------
@@ -324,7 +632,7 @@ def compute_early_rate(
     ------------------------------
     The condition is transient: it occurs between the point where the latent
     space first breaks and the point where the classifier also fails. A fixed-ε
-    EarlyRate would be threshold-sensitive and miss samples where the phenomenon
+    ICR would be threshold-sensitive and miss samples where the phenomenon
     occurs at a different epsilon. any() counts a sample if the condition holds
     at *at least one* ε — the most inclusive and robust definition.
 
@@ -335,7 +643,7 @@ def compute_early_rate(
 
     Returns
     -------
-    float in [0, 1]. Higher = more samples exhibit early interpretability failure.
+    float in [0, 1]. Higher = more samples exhibit interpretability collapse.
     """
     condition  = (m_proto_matrix < 0) & (m_pred_matrix > 0)   # (N, E) bool
     per_sample = condition.any(axis=1)                          # (N,) bool
@@ -444,18 +752,18 @@ def compute_tau_param(R_param_matrix: np.ndarray, eps_idx: int = 1) -> float:
     return float(np.percentile(baseline_col, 95))
 
 
-def compute_early_rate_senn(
+def compute_icr_senn(
     R_param_matrix: np.ndarray,
     m_pred_matrix:  np.ndarray,
     tau_param:      float,
 ) -> float:
     """
-    EarlyRate_SENN — fraction of samples where SENN's explanation collapses
+    ICR_SENN — fraction of samples where SENN's explanation collapses
     before its classification output changes.
 
     Formula
     -------
-      EarlyRate_SENN = (1/N) * sum_{i=1}^{N} max_{eps in E}
+    ICR_SENN = (1/N) * sum_{i=1}^{N} max_{eps in E}
                          I[ R_param(x_i, eps) > tau_param  AND  m_pred(x_i, eps) > 0 ]
 
     Condition components

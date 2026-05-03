@@ -18,7 +18,7 @@ For --arch B30 | ProtoVAE | SENN
         - Adv accuracy    (acc at EPS_REF)
         - Δm_proto @ EPS_REF   (vs base model; N/A for SENN)
         - ΔR_enc   @ EPS_REF   (or ΔR_param for SENN)
-        - EarlyRate            (or EarlyRate_SENN for SENN)
+        - ICR                  (or ICR_SENN for SENN)
         - frac_never_fail
         - E[r_PGD-]  (all-sample mean)
 
@@ -55,7 +55,8 @@ from config import (
 )
 from loaders import (
     load_all_variants, get_acc_curve, get_mean_metric_curve,
-    get_robustness_interval, get_scalar_at_eps,
+    get_scalar_at_eps,
+    get_rpgd_mean, get_rpgd_min,
 )
 
 
@@ -232,7 +233,7 @@ def build_ablation_table(
     Build master ablation table for one architecture.
 
     Columns depend on architecture:
-      All     : Variant, Frozen, Clean Acc, Adv Acc, EarlyRate*, E[r-]
+    All     : Variant, Frozen, Clean Acc, Adv Acc, ICR*, E[r-]
       B30/VAE : + Δm_proto@EPS_REF,  ΔR_enc@EPS_REF
       SENN    : + ΔR_param@EPS_REF   (replaces Δm_proto + ΔR_enc)
 
@@ -261,8 +262,6 @@ def build_ablation_table(
     for model_name, data in all_data.items():
         j   = data["json"]
         npz = data["npz"]
-        rob = get_robustness_interval(j)
-
         eps, acc = get_acc_curve(j)
         eps_idx_0   = 0
         eps_idx_ref = int(np.argmin(np.abs(eps - EPS_REF)))
@@ -270,11 +269,11 @@ def build_ablation_table(
         clean_acc = float(acc[eps_idx_0])
         adv_acc   = float(acc[eps_idx_ref])
 
-        # EarlyRate — architecture-aware
+        # ICR — architecture-aware
         if arch == "SENN":
-            early_rate = j.get("early_rate_senn")
+            icr = j.get("icr_senn")
         else:
-            early_rate = j.get("early_rate")
+            icr = j.get("icr")
 
         row: dict = {
             "Variant":          VARIANT_LABELS.get(model_name, model_name),
@@ -296,8 +295,9 @@ def build_ablation_table(
                            if "R_param" in npz else float("nan")
             row[r"$\Delta R_{param}$"] = round(R_param_mean - base_R_param, 4)
 
-        row["EarlyRate"]       = round(early_rate, 4) if early_rate is not None else float("nan")
-        row[r"$E[r_{PGD}^-]$"] = round(rob["mean_r_minus_all"], 4)
+        row["ICR"]                 = round(icr, 4) if icr is not None else float("nan")
+        row[r"$E[r_{PGD}^-]$"]     = round(get_rpgd_mean(j), 4)
+        #row[r"$\min(r_{PGD}^-)$"]  = round(get_rpgd_min(j), 6)
 
         rows.append(row)
 
@@ -329,9 +329,8 @@ def plot_crossarch_barplot(
             lbl = VARIANT_LABELS.get(model_name, model_name)
             if lbl == "Base":
                 continue
-            rob = get_robustness_interval(data["json"])
             labels.append(lbl)
-            values.append(rob["mean_r_minus_all"])
+            values.append(get_rpgd_mean(data["json"]))
         ft_labels_per_arch[arch] = labels
         r_minus_per_arch[arch]   = values
 
@@ -389,7 +388,7 @@ def build_crossarch_table(
 ) -> pd.DataFrame:
     """
     Unified table across all architectures.
-    EarlyRate column adapts: uses EarlyRate_SENN for SENN rows.
+    ICR column adapts: uses ICR_SENN for SENN rows.
     """
     rows = []
     for arch, data_dict in all_arch_data.items():
@@ -400,10 +399,9 @@ def build_crossarch_table(
 
         for model_name, data in data_dict.items():
             j   = data["json"]
-            rob = get_robustness_interval(j)
             eps, acc = get_acc_curve(j)
 
-            early_rate = j.get("early_rate_senn") if arch == "SENN" else j.get("early_rate")
+            icr = j.get("icr_senn") if arch == "SENN" else j.get("icr")
 
             rows.append({
                 "Arch":              arch,
@@ -411,8 +409,9 @@ def build_crossarch_table(
                 "Frozen":            FREEZE_DESCRIPTION.get(model_name, "—"),
                 "Clean Acc":         round(float(acc[0]),              4),
                 f"Adv Acc ({eps_ref})": round(float(acc[eps_idx_ref]), 4),
-                "EarlyRate":         round(early_rate, 4) if early_rate is not None else float("nan"),
-                r"$E[r_{PGD}^-]$":  round(rob["mean_r_minus_all"],   4),
+                "ICR":                  round(icr, 4) if icr is not None else float("nan"),
+                r"$E[r_{PGD}^-]$":      round(get_rpgd_mean(j), 4),
+                #r"$\min(r_{PGD}^-)$":   round(get_rpgd_min(j), 6),
             })
 
     return pd.DataFrame(rows)

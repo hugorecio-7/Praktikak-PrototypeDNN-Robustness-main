@@ -13,7 +13,7 @@ metrics.json, accuracy plot) AND adds:
 
     per_example_metrics.npz   — per-sample metric matrices (N, E) for every
                                  internal metric available for that architecture.
-    metrics.json              — extended with EarlyRate, empirical robustness
+    metrics.json              — extended with ICR, empirical robustness
                                  interval, and mean metric curves per epsilon.
 
 Architecture routing
@@ -53,7 +53,6 @@ import json
 import time
 from datetime import datetime
 from functools import partial
-from xml.parsers.expat import model
 
 import numpy as np
 import pandas as pd
@@ -73,9 +72,10 @@ from metric_calculators import (
     calc_R_concept,
     calc_R_param,
     compute_empirical_robustness_interval,
-    compute_early_rate,
+    compute_icr,
     compute_tau_param,
-    compute_early_rate_senn,
+    compute_icr_senn,
+    compute_r_pgd_binary_search,
 )
 
 
@@ -160,6 +160,9 @@ def adversarial_metrics_eps_collect(
     attack_params_map=None,
     bootstrap_B: int   = 2000,
     bootstrap_alpha: float = 0.05,
+    # --- r-PGD binary-search refinement options ------------------------------
+    rpgd_binary_steps: int = 10,
+    rpgd_binary_tol: float | None = None,
 ) -> None:
     """
     Evaluate models under adversarial attacks across an epsilon grid, collecting
@@ -406,21 +409,40 @@ def adversarial_metrics_eps_collect(
                 X_correct.astype(bool), x_axis.astype(np.float64)
             )
 
-            # EarlyRate — only meaningful for prototype-based architectures.
-            early_rate: float | None = None
+            # ICR — only meaningful for prototype-based architectures.
+            icr: float | None = None
             if is_b30 or is_protovae:
-                early_rate = compute_early_rate(M["m_proto"], M["m_pred"])
+                icr = compute_icr(M["m_proto"], M["m_pred"])
                 
-            # EarlyRate_SENN and tau_param — SENN only.
+            # ICR_SENN and tau_param — SENN only.
             # tau_param is computed from the R_param distribution at the first
             # non-zero epsilon (column 1), which defines the empirical noise floor
             # of the Parameterizer under minimal adversarial pressure.
             tau_param:       float | None = None
-            early_rate_senn: float | None = None
+            icr_senn: float | None = None
             if is_senn:
                 tau_param       = compute_tau_param(M["R_param"], eps_idx=1)
-                early_rate_senn = compute_early_rate_senn(
+                icr_senn = compute_icr_senn(
                     M["R_param"], M["m_pred"], tau_param
+                )
+
+            # ---- Binary-search r-PGD (only for PGDLInf_attack) ------
+            rpgd_bs_result: dict | None = None
+            if attack_name == "PGDLInf_attack":
+                pgd_params = attack_params_map.get("PGDLInf_attack", {}) if attack_params_map else {}
+                print(f"\n  Refining r-PGD with binary search for {model_name}...")
+                rpgd_bs_result = compute_r_pgd_binary_search(
+                    model=models[idm],
+                    data_loader=test_loader,
+                    eps_grid=x_axis.astype(np.float64),
+                    coarse_correct=X_correct.astype(bool),
+                    pgd_iters=pgd_params.get("iters", 80),
+                    pgd_alpha=pgd_params.get("alpha", 0.01),
+                    pgd_random_start=pgd_params.get("random_start", True),
+                    binary_steps=rpgd_binary_steps,
+                    tol=rpgd_binary_tol,
+                    seed=seed + idm,
+                    verbose=True,
                 )
 
             # ---- Directories --------------------------------------------
@@ -475,6 +497,18 @@ def adversarial_metrics_eps_collect(
             )
             print(f"Internal metrics saved to {os.path.join(run_dir, 'per_example_metrics.npz')}")
 
+            # ---- r_pgd_binary_search.npz (per-sample r-PGD) --------
+            if rpgd_bs_result is not None:
+                np.savez_compressed(
+                    os.path.join(run_dir, "r_pgd_binary_search.npz"),
+                    r_pgd=rpgd_bs_result["r_pgd"],
+                    r_pgd_upper=rpgd_bs_result["r_pgd_upper"],
+                    failing_mask=rpgd_bs_result["failing_mask"],
+                    clean_correct_mask=rpgd_bs_result["clean_correct_mask"],
+                    eps_grid=rpgd_bs_result["eps_grid"],
+                )
+                print(f"Binary-search r-PGD saved to {os.path.join(run_dir, 'r_pgd_binary_search.npz')}")
+
             # ---- Extended metrics.json ----------------------------------
             clean_acc = float(acc_curve[0]) if float(acc_curve[0]) > 0 else 1e-12
             rel_deg   = (clean_acc - acc_curve) / clean_acc * 100.0
@@ -500,6 +534,65 @@ def adversarial_metrics_eps_collect(
                 name: mat.mean(axis=0).tolist() for name, mat in M.items()
             }
 
+            robustness_json = {
+                # Consistent-population means (same N - only failing samples).
+                # mean_r_minus_failing <= mean_r_plus always holds.
+                "mean_r_minus_failing": rob_interval["mean_r_minus_failing"],
+                "mean_r_plus":          rob_interval["mean_r_plus"],
+                # All-sample mean (includes never-failing samples at max_eps).
+                # Higher than mean_r_minus_failing; NOT comparable to mean_r_plus.
+                "mean_r_minus_all":     rob_interval["mean_r_minus_all"],
+                "frac_never_fail":      rob_interval["frac_never_fail"],
+                "hist_r_minus":         rob_interval["hist_r_minus"],
+                "binary_search_refined": False,
+                "definition":           (
+                    "r_minus = max{eps in E | correct at all eps' <= eps}; "
+                    "r_plus  = first eps where model fails; "
+                    "mean_r_minus_failing and mean_r_plus share the same population "
+                    "(samples that fail at least once); "
+                    "mean_r_minus_all averages over all N samples."
+                ),
+            }
+
+            rpgd_bs_json = None
+            if rpgd_bs_result is not None:
+                robustness_json.update({
+                    "grid_mean_r_minus_failing": rob_interval["mean_r_minus_failing"],
+                    "grid_mean_r_minus_all":     rob_interval["mean_r_minus_all"],
+                    "grid_hist_r_minus":         rob_interval["hist_r_minus"],
+                    "mean_r_minus_failing":      rpgd_bs_result["mean_r_pgd_failing"],
+                    "mean_r_minus_all":          rpgd_bs_result["mean_r_pgd"],
+                    "min_r_minus_all":           rpgd_bs_result["min_r_pgd"],
+                    "frac_never_fail":           rpgd_bs_result["frac_never_fail"],
+                    "n_clean_correct":           rpgd_bs_result["n_clean_correct"],
+                    "n_excluded_clean_incorrect": rpgd_bs_result["n_excluded_clean_incorrect"],
+                    "frac_clean_correct":        rpgd_bs_result["frac_clean_correct"],
+                    "hist_r_minus":              rpgd_bs_result["hist_r_pgd"],
+                    "binary_search_refined":     True,
+                    "definition": (
+                        "r_minus is refined by binary search inside the coarse epsilon-grid "
+                        "interval [last correct eps, first failing eps]. r_plus remains the "
+                        "first failing epsilon from the coarse grid. Samples misclassified at "
+                        "eps=0 are excluded because their attack robustness radius is undefined."
+                    ),
+                })
+                rpgd_bs_json = {
+                    "mean_r_pgd":          rpgd_bs_result["mean_r_pgd"],
+                    "mean_r_pgd_failing":  rpgd_bs_result["mean_r_pgd_failing"],
+                    "min_r_pgd":           rpgd_bs_result["min_r_pgd"],
+                    "frac_never_fail":     rpgd_bs_result["frac_never_fail"],
+                    "n_total":             rpgd_bs_result["n_total"],
+                    "n_clean_correct":     rpgd_bs_result["n_clean_correct"],
+                    "n_excluded_clean_incorrect": rpgd_bs_result["n_excluded_clean_incorrect"],
+                    "frac_clean_correct":  rpgd_bs_result["frac_clean_correct"],
+                    "binary_steps":        rpgd_bs_result["binary_steps"],
+                    "tol":                 rpgd_bs_result["tol"],
+                    "pgd_iters":           rpgd_bs_result["pgd_iters"],
+                    "pgd_alpha":           rpgd_bs_result["pgd_alpha"],
+                    "pgd_random_start":    rpgd_bs_result["pgd_random_start"],
+                    "npz_file":            "r_pgd_binary_search.npz",
+                }
+
             metrics_dict = {
                 # ---- provenance -----------------------------------------
                 "dataset":      dataset,
@@ -524,7 +617,9 @@ def adversarial_metrics_eps_collect(
                     "seed":  int(seed + idm),
                 },
                 # ---- empirical robustness interval ----------------------
-                "empirical_robustness_interval": {
+                "empirical_robustness_interval": robustness_json,
+                "r_pgd_binary_search": rpgd_bs_json,
+                "grid_empirical_robustness_interval": {
                     # Consistent-population means (same N — only failing samples).
                     # mean_r_minus_failing <= mean_r_plus always holds.
                     "mean_r_minus_failing": rob_interval["mean_r_minus_failing"],
@@ -542,19 +637,19 @@ def adversarial_metrics_eps_collect(
                         "mean_r_minus_all averages over all N samples."
                     ),
                 },
-                # ---- EarlyRate (prototype architectures only) -----------
-                "early_rate": early_rate,   # None for SENN
-                "early_rate_definition": (
+                # ---- ICR (prototype architectures only) -----------------
+                "icr": icr,   # None for SENN
+                "icr_definition": (
                     "(1/N) * sum_i max_{eps} I[m_proto(x_i,eps)<0 & m_pred(x_i,eps)>0]"
-                    if early_rate is not None else "N/A — SENN has no prototypes"
+                    if icr is not None else "N/A — SENN has no prototypes"
                 ),
-                # ---- EarlyRate_SENN (SENN only) -------------------------
+                # ---- ICR_SENN (SENN only) -------------------------------
                 "tau_param": tau_param,         # None for B30/ProtoVAE
-                "early_rate_senn": early_rate_senn,  # None for B30/ProtoVAE
-                "early_rate_senn_definition": (
+                "icr_senn": icr_senn,  # None for B30/ProtoVAE
+                "icr_senn_definition": (
                     f"(1/N) * sum_i max_{{eps}} I[R_param(x_i,eps)>tau({tau_param:.6f}) & m_pred(x_i,eps)>0]; "
                     "tau = p95 of R_param at eps_min (first non-zero epsilon)"
-                    if early_rate_senn is not None
+                    if icr_senn is not None
                     else "N/A — only computed for SENN models"
                 ),
                 # ---- mean internal metric curves ------------------------
@@ -575,14 +670,16 @@ def adversarial_metrics_eps_collect(
             _save_json(os.path.join(run_dir, "metrics.json"), metrics_dict)
             print(f"Extended metrics.json saved to {os.path.join(run_dir, 'metrics.json')}")
 
-            if early_rate is not None:
-                print(f"  EarlyRate (proto) = {early_rate:.4f}")
-            if early_rate_senn is not None:
+            if icr is not None:
+                print(f"  ICR (proto) = {icr:.4f}")
+            if icr_senn is not None:
                 print(f"  tau_param = {tau_param:.6f}")
-                print(f"  EarlyRate_SENN    = {early_rate_senn:.4f}")
+                print(f"  ICR_SENN    = {icr_senn:.4f}")
             print(
                 f"  Empirical robustness (failing samples only): "
-                f"mean r- = {rob_interval['mean_r_minus_failing']:.4f}, "
+                f"mean r- = {robustness_json['mean_r_minus_failing']:.4f}, "
                 f"mean r+ = {rob_interval['mean_r_plus']:.4f}  "
-                f"| never-fail fraction = {rob_interval['frac_never_fail']:.4f}"
+                f"| never-fail fraction = {robustness_json['frac_never_fail']:.4f}"
             )
+            if rpgd_bs_result is not None:
+                print(f"  Binary-search r-PGD worst case = {rpgd_bs_result['min_r_pgd']:.4f}")

@@ -3,25 +3,25 @@
 \label{tab:crossarch_ablation_table}
 \begin{tabular}{lllrrrr}
 \toprule
-Arch & Variant & Frozen & Clean Acc & Adv Acc (0.3) & EarlyRate & $E[r_{PGD}^-]$ \\
+Arch & Variant & Frozen & Clean Acc & Adv Acc (0.3) & ICR & $E[r_{PGD}^-]$ \\
 \midrule
-B30 & Base & — & 0.9926 & 0.0000 & 0.0222 & 0.0186 \\
-B30 & FT-0 & Nothing (full) & 0.9852 & 0.9199 & 0.0965 & 0.3485 \\
-B30 & FT-1 & Autoencoder & 0.8869 & 0.0190 & 0.2009 & 0.0173 \\
-B30 & FT-2 & Prototypes & 0.9868 & 0.9101 & 0.1127 & 0.3300 \\
-B30 & FT-3 & Classifier & 0.9854 & 0.9144 & 0.0840 & 0.3532 \\
-B30 & FT-E & Protos + Classifier & 0.9799 & 0.9006 & 0.1436 & 0.2712 \\
-B30 & FT-E-M & Protos + Classifier (Mixed) & 0.9838 & 0.9057 & 0.0653 & 0.3295 \\
-ProtoVAE & Base & — & 0.9916 & 0.0022 & 0.1073 & 0.0598 \\
-ProtoVAE & FT-0 & Nothing (full) & 0.9877 & 0.9386 & 0.0205 & 0.3257 \\
-ProtoVAE & FT-1 & Autoencoder & 0.9714 & 0.0008 & 0.1201 & 0.0708 \\
-ProtoVAE & FT-2 & Prototypes & 0.9877 & 0.9409 & 0.0227 & 0.3605 \\
-ProtoVAE & FT-3 & Classifier & 0.9808 & 0.9315 & 0.0671 & 0.3214 \\
-ProtoVAE & FT-E & Protos + Classifier & 0.9831 & 0.8701 & 0.0862 & 0.3301 \\
-SENN & Base & — & 0.9659 & 0.0024 & 0.9164 & 0.1381 \\
-SENN & FT-0 & Nothing (full) & 0.9620 & 0.7784 & 0.9519 & 0.3037 \\
-SENN & FT-1 & Conceptizer & 0.9654 & 0.7471 & 0.9566 & 0.2995 \\
-SENN & FT-2 & Parameterizer & 0.9709 & 0.1342 & 0.9324 & 0.1765 \\
+B30 & Base & — & 0.9926 & 0.0000 & 0.0222 & 0.0307 \\
+B30 & FT-0 & Nothing (full) & 0.9852 & 0.9199 & 0.0965 & 0.3668 \\
+B30 & FT-1 & Autoencoder & 0.8869 & 0.0190 & 0.2009 & 0.0308 \\
+B30 & FT-2 & Prototypes & 0.9868 & 0.9101 & 0.1127 & 0.3472 \\
+B30 & FT-3 & Classifier & 0.9854 & 0.9144 & 0.0840 & 0.3715 \\
+B30 & FT-E & Protos + Classifier & 0.9799 & 0.9006 & 0.1436 & 0.2896 \\
+B30 & FT-E-M & Protos + Classifier (Mixed) & 0.9838 & 0.9057 & 0.0653 & 0.3476 \\
+ProtoVAE & Base & — & 0.9916 & 0.0022 & 0.1073 & 0.0727 \\
+ProtoVAE & FT-0 & Nothing (full) & 0.9877 & 0.9386 & 0.0205 & 0.3429 \\
+ProtoVAE & FT-1 & Autoencoder & 0.9714 & 0.0008 & 0.1201 & 0.0854 \\
+ProtoVAE & FT-2 & Prototypes & 0.9877 & 0.9409 & 0.0227 & 0.3784 \\
+ProtoVAE & FT-3 & Classifier & 0.9808 & 0.9315 & 0.0671 & 0.3401 \\
+ProtoVAE & FT-E & Protos + Classifier & 0.9831 & 0.8701 & 0.0862 & 0.3492 \\
+SENN & Base & — & 0.9659 & 0.0024 & 0.9164 & 0.1554 \\
+SENN & FT-0 & Nothing (full) & 0.9620 & 0.7784 & 0.9519 & 0.3281 \\
+SENN & FT-1 & Conceptizer & 0.9654 & 0.7471 & 0.9566 & 0.3226 \\
+SENN & FT-2 & Parameterizer & 0.9709 & 0.1342 & 0.9324 & 0.1942 \\
 \bottomrule
 \end{tabular}
 \end{table}

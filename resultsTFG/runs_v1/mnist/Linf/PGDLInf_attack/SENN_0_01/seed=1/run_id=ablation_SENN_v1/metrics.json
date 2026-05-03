@@ -190,11 +190,61 @@
     "seed": 1
   },
   "empirical_robustness_interval": {
-    "mean_r_minus_failing": 0.13806499540805817,
+    "mean_r_minus_failing": 0.15544389188289642,
     "mean_r_plus": 0.16221250593662262,
-    "mean_r_minus_all": 0.13806499540805817,
+    "mean_r_minus_all": 0.15544389188289642,
     "frac_never_fail": 0.0,
     "hist_r_minus": {
+      "counts": [
+        435,
+        878,
+        1424,
+        2080,
+        2353,
+        1735,
+        650,
+        103,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "bin_edges": [
+        0.0,
+        0.03999999910593033,
+        0.07999999821186066,
+        0.12000000476837158,
+        0.1599999964237213,
+        0.20000000298023224,
+        0.24000000953674316,
+        0.2800000011920929,
+        0.3199999928474426,
+        0.36000001430511475,
+        0.4000000059604645,
+        0.4399999976158142,
+        0.48000001907348633,
+        0.5199999809265137,
+        0.5600000023841858,
+        0.6000000238418579,
+        0.6399999856948853,
+        0.6800000071525574,
+        0.7200000286102295,
+        0.7599999904632568,
+        0.800000011920929
+      ]
+    },
+    "definition": "r_minus is refined by binary search inside the coarse epsilon-grid interval [last correct eps, first failing eps]. r_plus remains the first failing epsilon from the coarse grid. Samples misclassified at eps=0 are excluded because their attack robustness radius is undefined.",
+    "grid_mean_r_minus_failing": 0.13806499540805817,
+    "grid_mean_r_minus_all": 0.13806499540805817,
+    "grid_hist_r_minus": {
       "counts": [
         568,
         378,
@@ -241,13 +291,17 @@
         0.32499998807907104
       ]
     },
-    "definition": "r_minus = max{eps in E | correct at all eps' <= eps}; r_plus  = first eps where model fails; mean_r_minus_failing and mean_r_plus share the same population (samples that fail at least once); mean_r_minus_all averages over all N samples."
+    "min_r_minus_all": 0.000244140625,
+    "n_clean_correct": 9659,
+    "n_excluded_clean_incorrect": 341,
+    "frac_clean_correct": 0.9659,
+    "binary_search_refined": true
   },
-  "early_rate": null,
-  "early_rate_definition": "N/A \u2014 SENN has no prototypes",
+  "icr": null,
+  "icr_definition": "N/A \u2014 SENN has no prototypes",
   "tau_param": 0.07248719111084938,
-  "early_rate_senn": 0.9164,
-  "early_rate_senn_definition": "(1/N) * sum_i max_{eps} I[R_param(x_i,eps)>tau(0.072487) & m_pred(x_i,eps)>0]; tau = p95 of R_param at eps_min (first non-zero epsilon)",
+  "icr_senn": 0.9164,
+  "icr_senn_definition": "(1/N) * sum_i max_{eps} I[R_param(x_i,eps)>tau(0.072487) & m_pred(x_i,eps)>0]; tau = p95 of R_param at eps_min (first non-zero epsilon)",
   "mean_internal_metrics": {
     "m_pred": [
       0.22459113597869873,
@@ -362,5 +416,75 @@
   },
   "monotonicity_violations": [],
   "architecture": "SENN",
-  "notes": "per_example_metrics.npz contains (N,E) float32 matrices for all internal metrics; per_example_correct.npz contains the (N,E) uint8 accuracy matrix."
+  "notes": "per_example_metrics.npz contains (N,E) float32 matrices for all internal metrics; per_example_correct.npz contains the (N,E) uint8 accuracy matrix.",
+  "grid_empirical_robustness_interval": {
+    "mean_r_minus_failing": 0.13806499540805817,
+    "mean_r_plus": 0.16221250593662262,
+    "mean_r_minus_all": 0.13806499540805817,
+    "frac_never_fail": 0.0,
+    "hist_r_minus": {
+      "counts": [
+        568,
+        378,
+        0,
+        570,
+        739,
+        0,
+        1045,
+        1286,
+        0,
+        1460,
+        1465,
+        0,
+        1216,
+        767,
+        0,
+        353,
+        132,
+        0,
+        20,
+        1
+      ],
+      "bin_edges": [
+        0.0,
+        0.016249999403953552,
+        0.032499998807907104,
+        0.04874999821186066,
+        0.06499999761581421,
+        0.08124999701976776,
+        0.09749999642372131,
+        0.11374999582767487,
+        0.12999999523162842,
+        0.14624999463558197,
+        0.16249999403953552,
+        0.17874999344348907,
+        0.19499999284744263,
+        0.21124999225139618,
+        0.22749999165534973,
+        0.24374999105930328,
+        0.25999999046325684,
+        0.2762500047683716,
+        0.29249998927116394,
+        0.3087499737739563,
+        0.32499998807907104
+      ]
+    },
+    "definition": "r_minus = max{eps in E | correct at all eps' <= eps}; r_plus  = first eps where model fails; mean_r_minus_failing and mean_r_plus share the same population (samples that fail at least once); mean_r_minus_all averages over all N samples."
+  },
+  "r_pgd_binary_search": {
+    "mean_r_pgd": 0.15544389188289642,
+    "mean_r_pgd_failing": 0.15544389188289642,
+    "min_r_pgd": 0.000244140625,
+    "frac_never_fail": 0.0,
+    "n_total": 10000,
+    "n_clean_correct": 9659,
+    "n_excluded_clean_incorrect": 341,
+    "frac_clean_correct": 0.9659,
+    "binary_steps": 10,
+    "tol": null,
+    "pgd_iters": 80,
+    "pgd_alpha": 0.01,
+    "pgd_random_start": true,
+    "npz_file": "r_pgd_binary_search.npz"
+  }
 }

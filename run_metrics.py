@@ -247,6 +247,10 @@ def main():
     parser.add_argument("--run_id",          type=str,   default=None)
     parser.add_argument("--bootstrap_B",     type=int,   default=2000)
     parser.add_argument("--bootstrap_alpha", type=float, default=0.05)
+    parser.add_argument("--rpgd_binary_steps", type=int, default=10,
+                        help="Binary-search refinements for r-PGD inside each epsilon step.")
+    parser.add_argument("--rpgd_binary_tol", type=float, default=None,
+                        help="Optional tolerance for stopping the r-PGD binary search early.")
 
     args = parser.parse_args()
 
@@ -311,6 +315,8 @@ def main():
         attack_params_map = attack_params,
         bootstrap_B      = args.bootstrap_B,
         bootstrap_alpha  = args.bootstrap_alpha,
+        rpgd_binary_steps = args.rpgd_binary_steps,
+        rpgd_binary_tol   = args.rpgd_binary_tol,
     )
 
 

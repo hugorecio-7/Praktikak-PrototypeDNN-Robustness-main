@@ -243,11 +243,11 @@
     },
     "definition": "r_minus = max{eps in E | correct at all eps' <= eps}; r_plus  = first eps where model fails; mean_r_minus_failing and mean_r_plus share the same population (samples that fail at least once); mean_r_minus_all averages over all N samples."
   },
-  "early_rate": 0.1304,
-  "early_rate_definition": "(1/N) * sum_i max_{eps} I[m_proto(x_i,eps)<0 & m_pred(x_i,eps)>0]",
+  "icr": 0.1304,
+  "icr_definition": "(1/N) * sum_i max_{eps} I[m_proto(x_i,eps)<0 & m_pred(x_i,eps)>0]",
   "tau_param": null,
-  "early_rate_senn": null,
-  "early_rate_senn_definition": "N/A \u2014 only computed for SENN models",
+  "icr_senn": null,
+  "icr_senn_definition": "N/A \u2014 only computed for SENN models",
   "mean_internal_metrics": {
     "m_pred": [
       0.19575807452201843,

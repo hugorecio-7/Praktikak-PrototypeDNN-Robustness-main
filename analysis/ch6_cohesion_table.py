@@ -7,7 +7,8 @@ What this script produces
 --------------------------
 Table  (ch6_cohesion_table.csv  +  ch6_cohesion_table.tex)
     One row per variant, columns:
-        Variant | Frozen | mean ratio | std | median | pct_below_1 | E[r_PGD-]
+        Variant | Frozen | mean ratio | std | median | pct_below_1 |
+        E[r_PGD-] | min(r_PGD-)
 
     pct_below_1 is the narrative key column: the fraction of test samples
     that are geometrically closer to a correct prototype than to any wrong one.
@@ -37,7 +38,7 @@ from config import (
     FIGURES_ROOT, VARIANTS, VARIANT_LABELS,
     FREEZE_DESCRIPTION, DEFAULT_SEED, DEFAULT_RUN_ID,
 )
-from loaders import load_json, get_robustness_interval
+from loaders import load_json, get_rpgd_mean, get_rpgd_min
 
 
 # =============================================================================
@@ -67,8 +68,6 @@ def build_cohesion_table(
             )
             continue
 
-        rob = get_robustness_interval(j)
-
         rows.append({
             "Variant":              VARIANT_LABELS.get(model_name, model_name),
             "Frozen":               FREEZE_DESCRIPTION.get(model_name, "—"),
@@ -76,7 +75,8 @@ def build_cohesion_table(
             "Std":                  round(cohesion["std"],         4),
             "Median":               round(cohesion["median"],      4),
             r"$\%_{<1}$":           round(cohesion["pct_below_1"], 4),
-            r"$E[r_{PGD}^-]$":      round(rob["mean_r_minus_all"], 4),
+            r"$E[r_{PGD}^-]$":      round(get_rpgd_mean(j), 4),
+            #r"$\min(r_{PGD}^-)$":   round(get_rpgd_min(j), 6),
         })
 
     if not rows:

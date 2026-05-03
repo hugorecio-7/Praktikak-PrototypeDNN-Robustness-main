@@ -29,12 +29,15 @@ Design decisions
 - The PCA used for adversarial figures is identical to the clean one (fitted
   on clean z of the final epoch). Both projections are therefore directly
   comparable: cluster drift is readable as displacement in the same space.
-- Only B30 is supported (SENN has no z).
+- B30 and ProtoVAE are supported (SENN has no prototype latent z here).
 
 Usage
 -----
     # Clean figure (original behaviour):
     python ch6_pca_training.py --variant B30-FT-0
+
+    # Clean ProtoVAE figure:
+    python ch6_pca_training.py --variant ProtoVAE-FT-0
 
     # Both clean + adversarial at eps 0.1, 0.3, 0.5:
     python ch6_pca_training.py --variant B30-FT-0 --show_adv --eps_list 0.1 0.3 0.5
@@ -74,13 +77,13 @@ from metric_extractor import extract_internals, get_proto_labels
 # Constants
 # =============================================================================
 
-SUPPORTED_ARCHS   = ["B30"]
+SUPPORTED_ARCHS   = ["B30", "ProtoVAE"]
 N_SAMPLES_VIZ     = 1000
 CMAP              = "tab10"
 
-PGD_ITERS_DEFAULT = 40
+PGD_ITERS_DEFAULT = 80
 PGD_ALPHA_DEFAULT = 0.01
-EPS_LIST_DEFAULT  = [0.1, 0.3, 0.5]
+EPS_LIST_DEFAULT  = [0.3]
 
 
 # =============================================================================
@@ -108,6 +111,56 @@ def _load_b30(ckpt_path: str | Path, device: torch.device) -> nn.Module:
         model.load_state_dict(model_state)
 
     return model.to(device).eval()
+
+
+class ProtoVAEWrapper(nn.Module):
+    """Evaluation wrapper matching run_metrics.py: accepts x in [0,1]."""
+
+    def __init__(self, base_model: nn.Module):
+        super().__init__()
+        self.base = base_model
+        self.input_bounds = (0, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x * 2 - 1
+        logits, _ = self.base.pred_class(x)
+        return logits
+
+
+def _load_protovae(ckpt_path: str | Path, device: torch.device) -> nn.Module:
+    """
+    Load ProtoVAE from the base checkpoint or a fine-tuning PCA frame.
+
+    Base checkpoint: plain state_dict.
+    PCA frame:       dict with "model_state" key.
+    """
+    from ProtoVAE import model as model_protovae
+
+    model = model_protovae.ProtoVAE().to(device)
+    state = torch.load(ckpt_path, map_location=device)
+    model_state = state.get("model_state", state) if isinstance(state, dict) else state
+    model.load_state_dict(model_state)
+    return ProtoVAEWrapper(model).to(device).eval()
+
+
+def load_model_for_frame(arch: str, ckpt_path: str | Path, device: torch.device) -> nn.Module:
+    if arch == "B30":
+        return _load_b30(ckpt_path, device)
+    if arch == "ProtoVAE":
+        return _load_protovae(ckpt_path, device)
+    raise ValueError(f"[pca_training] Unsupported arch '{arch}'.")
+
+
+def infer_arch_from_variant(variant: str) -> str:
+    """Infer architecture from the variant name when --arch is omitted."""
+    if variant == "B30" or variant.startswith("B30-"):
+        return "B30"
+    if variant == "ProtoVAE" or variant.startswith("ProtoVAE-"):
+        return "ProtoVAE"
+    raise ValueError(
+        f"Cannot infer architecture from variant '{variant}'. "
+        f"Please pass --arch explicitly. Choices: {SUPPORTED_ARCHS}"
+    )
 
 
 # =============================================================================
@@ -179,8 +232,8 @@ def extract_z_adv(
         xb = x[start:start + batch_size].to(device)
         yb = y[start:start + batch_size].to(device)
 
-        def loss_f(x_in: torch.Tensor) -> torch.Tensor:
-            return F.cross_entropy(model(x_in), yb)
+        def loss_f(*, batch_x: torch.Tensor) -> torch.Tensor:
+            return F.cross_entropy(model(batch_x), yb)
 
         x_adv = PGDLInf_attack(
             xb, loss_f,
@@ -202,6 +255,9 @@ def extract_prototypes(arch: str, model: nn.Module) -> np.ndarray:
     """Return prototype vectors as (n_proto, D) numpy array."""
     if arch == "B30":
         return model.prototype_layer.prototype_distances.detach().cpu().numpy()
+    if arch == "ProtoVAE":
+        base = model.base if hasattr(model, "base") else model
+        return base.prototype_vectors.detach().cpu().numpy()
     raise ValueError(f"[pca_training] No prototype extractor for arch '{arch}'.")
 
 
@@ -292,7 +348,7 @@ def _save_fig(fig: plt.Figure, fpath: str) -> None:
     os.makedirs(os.path.dirname(fpath), exist_ok=True)
     fig.savefig(fpath, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved → {fpath}")
+    print(f"  Saved -> {fpath}")
 
 
 # =============================================================================
@@ -303,6 +359,7 @@ def plot_pca_frames(
     frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]],
     pca: PCA,
     y: np.ndarray,
+    arch: str,
     variant: str,
     out_dir: str,
 ) -> None:
@@ -330,7 +387,7 @@ def plot_pca_frames(
     _add_legend(fig, 10, cmap)
     label = VARIANT_LABELS.get(variant, variant)
     fig.suptitle(
-        f"Latent space evolution during fine-tuning — {label} (B30)\n"
+        f"Latent space evolution during fine-tuning — {label} ({arch})\n"
         f"★ = prototypes  |  dots = test samples  |  PCA fit on final epoch",
         fontsize=11, y=1.03,
     )
@@ -346,6 +403,7 @@ def plot_pca_frames_adv(
     frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]],
     pca: PCA,
     y: np.ndarray,
+    arch: str,
     variant: str,
     eps: float,
     out_dir: str,
@@ -372,7 +430,7 @@ def plot_pca_frames_adv(
     _add_legend(fig, 10, cmap)
     label = VARIANT_LABELS.get(variant, variant)
     fig.suptitle(
-        rf"Latent space under PGD attack ($\varepsilon = {eps}$) — {label} (B30)"
+        rf"Latent space under PGD attack ($\varepsilon = {eps}$) — {label} ({arch})"
         "\n★ = prototypes  |  dots = adversarial samples  |  PCA fit on clean final epoch",
         fontsize=11, y=1.03,
     )
@@ -393,12 +451,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--variant", type=str, required=True,
-        help="FT variant name, e.g. B30-FT-0.",
+        help="FT variant name, e.g. B30-FT-0 or ProtoVAE-FT-0.",
     )
     parser.add_argument(
-        "--arch", type=str, default="B30",
+        "--arch", type=str, default=None,
         choices=SUPPORTED_ARCHS,
-        help="Architecture (only B30 supported).",
+        help="Architecture to visualise. If omitted, inferred from --variant.",
     )
     parser.add_argument(
         "--n_samples", type=int, default=N_SAMPLES_VIZ,
@@ -429,6 +487,8 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    if args.arch is None:
+        args.arch = infer_arch_from_variant(args.variant)
 
     plt.rcParams.update(RC_PARAMS)
     out_dir = os.path.join(FIGURES_ROOT, "ch6")
@@ -438,21 +498,21 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 1. Load fixed test subset
     # ------------------------------------------------------------------
-    print(f"\nLoading {args.n_samples} test samples …")
+    print(f"\nLoading {args.n_samples} test samples ...")
     x_sub, y_sub = get_test_subset(args.n_samples, args.seed)
     y_np = y_sub.numpy()
 
     # ------------------------------------------------------------------
     # 2. Discover epoch frame checkpoints
     # ------------------------------------------------------------------
-    print(f"Discovering PCA frame checkpoints for {args.variant} …")
+    print(f"Discovering PCA frame checkpoints for {args.variant} ...")
     try:
         all_frames = load_pca_frame_paths(args.arch, args.variant, args.seed)
     except FileNotFoundError as e:
         print(f"[ERROR] {e}")
         print(
             "  Make sure the fine-tuning was run with --save_n_frames N.\n"
-            "  See config.py → EPOCH_CKPT_DIR_TEMPLATE."
+            "  See config.py -> EPOCH_CKPT_DIR_TEMPLATE."
         )
         return
 
@@ -476,8 +536,8 @@ def main() -> None:
     proto_per_frame:   list[tuple[np.ndarray, np.ndarray]] = []
 
     for epoch, ckpt_path in selected:
-        print(f"  Loading epoch {epoch} from {ckpt_path} …")
-        model      = _load_b30(ckpt_path, device)
+        print(f"  Loading epoch {epoch} from {ckpt_path} ...")
+        model      = load_model_for_frame(args.arch, ckpt_path, device)
         z          = extract_z(model, x_sub, device)
         prototypes = extract_prototypes(args.arch, model)
         proto_lbl  = get_proto_labels(model).numpy()
@@ -489,7 +549,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 4. Fit PCA on the FINAL frame's clean latent codes
     # ------------------------------------------------------------------
-    print("\nFitting PCA on final-epoch latent codes …")
+    print("\nFitting PCA on final-epoch latent codes ...")
     _, z_final = z_clean_per_frame[-1]
     pca = fit_pca(z_final)
     print(
@@ -506,20 +566,20 @@ def main() -> None:
     ]
 
     if not args.no_clean:
-        print("\nGenerating clean PCA figure …")
-        plot_pca_frames(frames_clean, pca, y_np, args.variant, out_dir)
+        print("\nGenerating clean PCA figure ...")
+        plot_pca_frames(frames_clean, pca, y_np, args.arch, args.variant, out_dir)
 
     # ------------------------------------------------------------------
     # 6. Adversarial figures — one per epsilon
     # ------------------------------------------------------------------
     if args.show_adv:
         for eps in args.eps_list:
-            print(f"\nGenerating adversarial PCA figure — ε={eps} …")
+            print(f"\nGenerating adversarial PCA figure -- eps={eps} ...")
             frames_adv = []
             for model, (epoch, _), (protos, proto_lbl) in zip(
                 models_per_frame, z_clean_per_frame, proto_per_frame
             ):
-                print(f"  Attacking epoch {epoch} …")
+                print(f"  Attacking epoch {epoch} ...")
                 z_adv = extract_z_adv(
                     model, x_sub, y_sub, eps, device,
                     pgd_iters=args.pgd_iters,
@@ -528,7 +588,7 @@ def main() -> None:
                 frames_adv.append(
                     (epoch, project(pca, z_adv), project(pca, protos), proto_lbl)
                 )
-            plot_pca_frames_adv(frames_adv, pca, y_np, args.variant, eps, out_dir)
+            plot_pca_frames_adv(frames_adv, pca, y_np, args.arch, args.variant, eps, out_dir)
 
     print("\nDone.")
 

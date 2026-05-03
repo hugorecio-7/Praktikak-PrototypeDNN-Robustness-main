@@ -72,7 +72,7 @@ from metric_extractor import extract_internals, get_proto_labels
 N_TRAJ_SAMPLES   = 10      # number of trajectories to draw per panel
 PGD_EPS_DEFAULT  = 0.3     # epsilon for trajectory visualisation
 PGD_ALPHA        = 0.01
-PGD_ITERS        = 40
+PGD_ITERS        = 80
 CMAP             = "tab10"
 N_CLASSES        = 10
 
