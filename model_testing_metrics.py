@@ -389,6 +389,7 @@ def adversarial_metrics_eps_collect(
             cols     = [np.concatenate(per_example_correct[idm][j], axis=0) for j in range(dim)]
             X_correct = np.stack(cols, axis=1)          # (N, E)
             acc_curve = X_correct.mean(axis=0)          # (E,)
+            clean_correct_mask = X_correct[:, 0].astype(bool)
 
             ci_low, ci_high = bootstrap_ci_mean_matrix(
                 X_correct, B=bootstrap_B, alpha=bootstrap_alpha,
@@ -411,19 +412,38 @@ def adversarial_metrics_eps_collect(
 
             # ICR — only meaningful for prototype-based architectures.
             icr: float | None = None
+            icr_all: float | None = None
             if is_b30 or is_protovae:
-                icr = compute_icr(M["m_proto"], M["m_pred"])
+                icr_all = compute_icr(M["m_proto"], M["m_pred"])
+                icr = compute_icr(
+                    M["m_proto"],
+                    M["m_pred"],
+                    clean_correct_mask=clean_correct_mask,
+                )
                 
             # ICR_SENN and tau_param — SENN only.
             # tau_param is computed from the R_param distribution at the first
             # non-zero epsilon (column 1), which defines the empirical noise floor
             # of the Parameterizer under minimal adversarial pressure.
             tau_param:       float | None = None
+            tau_param_all:   float | None = None
             icr_senn: float | None = None
+            icr_senn_all: float | None = None
             if is_senn:
-                tau_param       = compute_tau_param(M["R_param"], eps_idx=1)
+                tau_param_all = compute_tau_param(M["R_param"], eps_idx=1)
+                icr_senn_all = compute_icr_senn(
+                    M["R_param"], M["m_pred"], tau_param_all
+                )
+                tau_param = compute_tau_param(
+                    M["R_param"],
+                    eps_idx=1,
+                    clean_correct_mask=clean_correct_mask,
+                )
                 icr_senn = compute_icr_senn(
-                    M["R_param"], M["m_pred"], tau_param
+                    M["R_param"],
+                    M["m_pred"],
+                    tau_param,
+                    clean_correct_mask=clean_correct_mask,
                 )
 
             # ---- Binary-search r-PGD (only for PGDLInf_attack) ------
@@ -639,16 +659,31 @@ def adversarial_metrics_eps_collect(
                 },
                 # ---- ICR (prototype architectures only) -----------------
                 "icr": icr,   # None for SENN
+                "icr_all": icr_all,
+                "icr_population": {
+                    "n_total": int(X_correct.shape[0]),
+                    "n_clean_correct": int(clean_correct_mask.sum()),
+                    "n_excluded_clean_incorrect": int((~clean_correct_mask).sum()),
+                    "frac_clean_correct": float(clean_correct_mask.mean()),
+                },
                 "icr_definition": (
-                    "(1/N) * sum_i max_{eps} I[m_proto(x_i,eps)<0 & m_pred(x_i,eps)>0]"
+                    "(1/N_clean_correct) * sum_i max_{eps} "
+                    "I[m_proto(x_i,eps)<0 & m_pred(x_i,eps)>0], "
+                    "restricted to samples correctly classified at eps=0. "
+                    "Legacy all-sample value is stored as icr_all."
                     if icr is not None else "N/A — SENN has no prototypes"
                 ),
                 # ---- ICR_SENN (SENN only) -------------------------------
                 "tau_param": tau_param,         # None for B30/ProtoVAE
+                "tau_param_all": tau_param_all,
                 "icr_senn": icr_senn,  # None for B30/ProtoVAE
+                "icr_senn_all": icr_senn_all,
                 "icr_senn_definition": (
-                    f"(1/N) * sum_i max_{{eps}} I[R_param(x_i,eps)>tau({tau_param:.6f}) & m_pred(x_i,eps)>0]; "
-                    "tau = p95 of R_param at eps_min (first non-zero epsilon)"
+                    f"(1/N_clean_correct) * sum_i max_{{eps}} "
+                    f"I[R_param(x_i,eps)>tau({tau_param:.6f}) & m_pred(x_i,eps)>0]; "
+                    "restricted to samples correctly classified at eps=0. "
+                    "tau = p95 of R_param at eps_min over the same clean-correct population. "
+                    "Legacy all-sample values are stored as tau_param_all and icr_senn_all."
                     if icr_senn is not None
                     else "N/A — only computed for SENN models"
                 ),

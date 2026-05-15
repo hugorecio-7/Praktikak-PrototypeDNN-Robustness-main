@@ -297,8 +297,8 @@
     "frac_clean_correct": 0.9831,
     "binary_search_refined": true
   },
-  "icr": 0.0862,
-  "icr_definition": "(1/N) * sum_i max_{eps} I[m_proto(x_i,eps)<0 & m_pred(x_i,eps)>0]",
+  "icr": 0.08768182280541145,
+  "icr_definition": "(1/N_clean_correct) * sum_i max_{eps} I[m_proto(x_i,eps)<0 & m_pred(x_i,eps)>0], restricted to samples correctly classified at eps=0. Legacy all-sample value is stored as icr_all.",
   "tau_param": null,
   "icr_senn": null,
   "icr_senn_definition": "N/A \u2014 only computed for SENN models",
@@ -597,5 +597,12 @@
     "pgd_alpha": 0.01,
     "pgd_random_start": true,
     "npz_file": "r_pgd_binary_search.npz"
-  }
+  },
+  "icr_population": {
+    "n_total": 10000,
+    "n_clean_correct": 9831,
+    "n_excluded_clean_incorrect": 169,
+    "frac_clean_correct": 0.9831
+  },
+  "icr_all": 0.0862
 }

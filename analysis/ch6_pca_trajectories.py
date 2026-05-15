@@ -81,6 +81,20 @@ N_CLASSES        = 10
 # Model loading  (mirrors run_metrics.py exactly)
 # =============================================================================
 
+def _infer_arch(model_name: str) -> str:
+    if model_name == "B30" or model_name.startswith("B30-"):
+        return "B30"
+    if model_name == "ProtoVAE" or model_name.startswith("ProtoVAE-"):
+        return "ProtoVAE"
+    raise ValueError(
+        f"Unsupported model '{model_name}'. Use a B30 or ProtoVAE variant."
+    )
+
+
+def _checkpoint_model_state(state):
+    return state.get("model_state", state) if isinstance(state, dict) else state
+
+
 def _load_b30(model_name: str, device: torch.device) -> nn.Module:
     base_path = CKPT_PATHS["B30"]
     try:
@@ -90,9 +104,50 @@ def _load_b30(model_name: str, device: torch.device) -> nn.Module:
 
     if model_name != "B30":
         ckpt  = torch.load(CKPT_PATHS[model_name], map_location=device)
-        model.load_state_dict(ckpt["model_state"])
+        model.load_state_dict(_checkpoint_model_state(ckpt))
 
     return model.to(device).eval()
+
+
+class ProtoVAEWrapper(nn.Module):
+    """Evaluation wrapper matching run_metrics.py: accepts x in [0, 1]."""
+
+    def __init__(self, base_model: nn.Module):
+        super().__init__()
+        self.base = base_model
+        self.input_bounds = (0, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x * 2 - 1
+        logits, _ = self.base.pred_class(x)
+        return logits
+
+
+def _load_protovae(model_name: str, device: torch.device) -> nn.Module:
+    from ProtoVAE import model as model_protovae
+
+    model = model_protovae.ProtoVAE().to(device)
+    state = torch.load(CKPT_PATHS[model_name], map_location=device)
+    model.load_state_dict(_checkpoint_model_state(state))
+    return ProtoVAEWrapper(model).to(device).eval()
+
+
+def load_model(model_name: str, device: torch.device) -> nn.Module:
+    arch = _infer_arch(model_name)
+    if arch == "B30":
+        return _load_b30(model_name, device)
+    if arch == "ProtoVAE":
+        return _load_protovae(model_name, device)
+    raise AssertionError(f"Unhandled architecture '{arch}'.")
+
+
+def get_prototype_vectors(model: nn.Module) -> np.ndarray:
+    base = model.base if hasattr(model, "base") else model
+    if hasattr(base, "prototype_vectors"):
+        return base.prototype_vectors.detach().cpu().numpy()
+    if hasattr(base, "prototype_layer"):
+        return base.prototype_layer.prototype_distances.detach().cpu().numpy()
+    raise ValueError(f"Model {type(base).__name__} has no prototype vectors.")
 
 
 # =============================================================================
@@ -385,7 +440,7 @@ def plot_trajectories(
     fpath = os.path.join(out_dir, fname)
     fig.savefig(fpath, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved → {fpath}")
+    print(f"  Saved -> {fpath}")
 
 
 # =============================================================================
@@ -426,9 +481,9 @@ def main() -> None:
     # 2. Load both models
     # ------------------------------------------------------------------
     print(f"Loading {args.model_a} …")
-    model_a = _load_b30(args.model_a, device)
+    model_a = load_model(args.model_a, device)
     print(f"Loading {args.model_b} …")
-    model_b = _load_b30(args.model_b, device)
+    model_b = load_model(args.model_b, device)
 
     # ------------------------------------------------------------------
     # 3. Extract clean latent codes and prototypes for both models
@@ -440,8 +495,8 @@ def main() -> None:
 
     proto_lbl_a = get_proto_labels(model_a).numpy()
     proto_lbl_b = get_proto_labels(model_b).numpy()
-    proto_a     = model_a.prototype_layer.prototype_distances.detach().cpu().numpy()
-    proto_b     = model_b.prototype_layer.prototype_distances.detach().cpu().numpy()
+    proto_a     = get_prototype_vectors(model_a)
+    proto_b     = get_prototype_vectors(model_b)
 
     # ------------------------------------------------------------------
     # 4. Fit joint PCA on clean codes of both models

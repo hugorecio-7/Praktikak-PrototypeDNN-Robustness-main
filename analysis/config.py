@@ -41,7 +41,7 @@ CKPT_PATHS: dict[str, str] = {
     "B30-FT-2": "tfg_models/B30/B30-FT-2/seed=1/checkpoints/B30_B30-FT-2_seed1_best_val_adv_acc.pth",
     "B30-FT-3": "tfg_models/B30/B30-FT-3/seed=1/checkpoints/B30_B30-FT-3_seed1_best_val_adv_acc.pth",
     "B30-FT-E": "tfg_models/B30/B30-FT-E/seed=1/checkpoints/B30_B30-FT-E_seed1_best_val_adv_acc.pth",
-    "B30-FT-E-M": "tfg_models/B30/B30-FT-E-M/seed=1_loweps005_pca/checkpoints/B30_B30-FT-E_seed1_best_val_adv_acc.pth",
+    "B30-FT-E-M": "tfg_models/B30/B30-FT-E-M/seed=1/checkpoints/B30_B30-FT-E_seed1_best_val_adv_acc.pth",
     # --- ProtoVAE ---
     "ProtoVAE":      "ProtoVAE/saved_models/mnist/model.pth",
     "ProtoVAE-FT-0": "tfg_models/ProtoVAE/ProtoVAE-FT-0/seed=1/checkpoints/ProtoVAE_ProtoVAE-FT-0_seed1_best_val_adv_acc.pth",

@@ -213,6 +213,77 @@ def calc_R_param(theta_clean: torch.Tensor, theta_adv: torch.Tensor) -> np.ndarr
     return calc_R_enc(tc, ta)
 
 
+# =============================================================================
+# Adversarial latent trajectory metrics
+# =============================================================================
+
+def compute_pgd_final_shift(
+    z_clean: np.ndarray,
+    z_pgd_final: np.ndarray,
+) -> np.ndarray:
+    """
+    Per-sample final PGD displacement in the original latent space.
+
+    Returns ||z_pgd_final - z_clean||_2 for each sample.
+    """
+    zc = np.asarray(z_clean, dtype=np.float64)
+    zp = np.asarray(z_pgd_final, dtype=np.float64)
+    return np.linalg.norm(zp - zc, axis=-1).astype(np.float32)
+
+
+def compute_autoattack_shift(
+    z_clean: np.ndarray,
+    z_auto: np.ndarray,
+) -> np.ndarray:
+    """
+    Per-sample AutoAttack final displacement in the original latent space.
+
+    Returns ||z_auto - z_clean||_2 for each sample.
+    """
+    zc = np.asarray(z_clean, dtype=np.float64)
+    za = np.asarray(z_auto, dtype=np.float64)
+    return np.linalg.norm(za - zc, axis=-1).astype(np.float32)
+
+
+def compute_pgd_path_length(
+    z_pgd_trajectory: list[np.ndarray] | np.ndarray,
+) -> np.ndarray:
+    """
+    Per-sample PGD latent trajectory path length.
+
+    z_pgd_trajectory may be a list of T arrays shaped (B, D), or one array
+    shaped (T, B, D). The returned value is
+    sum_t ||z_pgd_t - z_pgd_{t-1}||_2 for each sample.
+    """
+    traj = np.asarray(z_pgd_trajectory, dtype=np.float64)
+    if traj.ndim < 3:
+        raise ValueError(
+            "z_pgd_trajectory must have shape (T, B, D) or be a list of "
+            "(B, D) arrays."
+        )
+    step_lengths = np.linalg.norm(np.diff(traj, axis=0), axis=-1)
+    return step_lengths.sum(axis=0).astype(np.float32)
+
+
+def compute_pgd_path_efficiency(
+    z_clean: np.ndarray,
+    z_pgd_final: np.ndarray,
+    z_pgd_trajectory: list[np.ndarray] | np.ndarray,
+) -> np.ndarray:
+    """
+    Per-sample PGD path efficiency in latent space.
+
+    Efficiency = ||z_pgd_final - z_clean||_2 / (path_length + theta_traj).
+    Values closer to 1 indicate a direct path; lower values indicate a more
+    curved trajectory. theta_traj is only for numerical stability.
+    """
+    theta_traj = 1e-12
+    final_shift = compute_pgd_final_shift(z_clean, z_pgd_final).astype(np.float64)
+    path_length = compute_pgd_path_length(z_pgd_trajectory).astype(np.float64)
+    efficiency = final_shift / (path_length + theta_traj)
+    return efficiency.astype(np.float32)
+
+
 def compute_empirical_robustness_interval(
     correct_matrix: np.ndarray,
     eps_grid: np.ndarray,
@@ -610,9 +681,30 @@ def compute_r_pgd_binary_search(
     return summary
 
 
+def _population_mask(n_samples: int, clean_correct_mask: np.ndarray | None) -> np.ndarray:
+    """
+    Resolve the population used by sample-level aggregate metrics.
+
+    With clean_correct_mask, aggregate only over samples classified correctly at
+    eps=0. This matches the r-PGD convention: samples already wrong on clean
+    data have no meaningful robustness or early-collapse population.
+    """
+    if clean_correct_mask is None:
+        return np.ones(n_samples, dtype=bool)
+
+    mask = np.asarray(clean_correct_mask).astype(bool)
+    if mask.ndim != 1 or mask.shape[0] != n_samples:
+        raise ValueError(
+            "clean_correct_mask must be a 1D array with one entry per sample; "
+            f"got shape {mask.shape}, expected ({n_samples},)."
+        )
+    return mask
+
+
 def compute_icr(
     m_proto_matrix: np.ndarray,
     m_pred_matrix:  np.ndarray,
+    clean_correct_mask: np.ndarray | None = None,
 ) -> float:
     """
     ICR (Interpretability Collapse Rate) — fraction of test samples that exhibit interpretability collapse
@@ -647,7 +739,8 @@ def compute_icr(
     """
     condition  = (m_proto_matrix < 0) & (m_pred_matrix > 0)   # (N, E) bool
     per_sample = condition.any(axis=1)                          # (N,) bool
-    return float(per_sample.mean())
+    mask = _population_mask(per_sample.shape[0], clean_correct_mask)
+    return float(per_sample[mask].mean()) if mask.any() else float("nan")
 
 
 # =============================================================================
@@ -720,7 +813,11 @@ def calc_cohesion_ratio(
 # SENN-specific global metrics (Chapter 7.2)
 # =============================================================================
 
-def compute_tau_param(R_param_matrix: np.ndarray, eps_idx: int = 1) -> float:
+def compute_tau_param(
+    R_param_matrix: np.ndarray,
+    eps_idx: int = 1,
+    clean_correct_mask: np.ndarray | None = None,
+) -> float:
     """
     Empirical threshold tau_param for SENN explanation collapse detection.
 
@@ -749,6 +846,10 @@ def compute_tau_param(R_param_matrix: np.ndarray, eps_idx: int = 1) -> float:
             f"but eps_idx={eps_idx} was requested. Need at least {eps_idx + 1} columns."
         )
     baseline_col = R_param_matrix[:, eps_idx]   # (N,) — R_param at eps_min
+    mask = _population_mask(R_param_matrix.shape[0], clean_correct_mask)
+    if not mask.any():
+        return float("nan")
+    baseline_col = R_param_matrix[mask, eps_idx]
     return float(np.percentile(baseline_col, 95))
 
 
@@ -756,6 +857,7 @@ def compute_icr_senn(
     R_param_matrix: np.ndarray,
     m_pred_matrix:  np.ndarray,
     tau_param:      float,
+    clean_correct_mask: np.ndarray | None = None,
 ) -> float:
     """
     ICR_SENN — fraction of samples where SENN's explanation collapses
@@ -789,4 +891,5 @@ def compute_icr_senn(
     """
     condition  = (R_param_matrix > tau_param) & (m_pred_matrix > 0)  # (N, E) bool
     per_sample = condition.any(axis=1)                                  # (N,) bool
-    return float(per_sample.mean())
+    mask = _population_mask(per_sample.shape[0], clean_correct_mask)
+    return float(per_sample[mask].mean()) if mask.any() else float("nan")

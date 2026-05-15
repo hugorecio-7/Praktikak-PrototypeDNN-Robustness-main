@@ -36,6 +36,9 @@ Usage
     # Clean figure (original behaviour):
     python ch6_pca_training.py --variant B30-FT-0
 
+    # Compare variants with one global clean PCA, saving one PDF per variant:
+    python ch6_pca_training.py --arch B30 --variants B30-FT-0 B30-FT-E
+
     # Clean ProtoVAE figure:
     python ch6_pca_training.py --variant ProtoVAE-FT-0
 
@@ -50,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -163,6 +167,17 @@ def infer_arch_from_variant(variant: str) -> str:
     )
 
 
+def validate_variants_for_arch(arch: str, variants: list[str]) -> None:
+    """Fail fast if a multi-variant PCA would mix architectures."""
+    for variant in variants:
+        inferred = infer_arch_from_variant(variant)
+        if inferred != arch:
+            raise ValueError(
+                f"Variant '{variant}' belongs to arch '{inferred}', "
+                f"but --arch is '{arch}'. Do not mix architectures in one PCA."
+            )
+
+
 # =============================================================================
 # Data helpers
 # =============================================================================
@@ -272,6 +287,20 @@ def fit_pca(z: np.ndarray) -> PCA:
     return pca
 
 
+def save_pca(pca: PCA, fpath: str) -> None:
+    """Persist a fitted PCA object for reproducibility/reuse."""
+    os.makedirs(os.path.dirname(fpath), exist_ok=True)
+    with open(fpath, "wb") as f:
+        pickle.dump(pca, f)
+    print(f"  Saved PCA -> {fpath}")
+
+
+def load_pca(pca_path: str | Path) -> PCA:
+    """Load a fitted PCA object saved by ch6_pca_training.py."""
+    with open(pca_path, "rb") as f:
+        return pickle.load(f)
+
+
 def project(pca: PCA, z: np.ndarray) -> np.ndarray:
     """Project (N, D) → (N, 2)."""
     return pca.transform(z)
@@ -362,6 +391,8 @@ def plot_pca_frames(
     arch: str,
     variant: str,
     out_dir: str,
+    *,
+    global_pca: bool = False,
 ) -> None:
     """
     Plot all clean frames in a grid figure.
@@ -386,13 +417,15 @@ def plot_pca_frames(
 
     _add_legend(fig, 10, cmap)
     label = VARIANT_LABELS.get(variant, variant)
+    pca_desc = "PCA fit on global clean latent codes" if global_pca else "PCA fit on final epoch"
     fig.suptitle(
         f"Latent space evolution during fine-tuning — {label} ({arch})\n"
-        f"★ = prototypes  |  dots = test samples  |  PCA fit on final epoch",
+        f"★ = prototypes  |  dots = test samples  |  {pca_desc}",
         fontsize=11, y=1.03,
     )
     plt.tight_layout()
-    _save_fig(fig, os.path.join(out_dir, f"ch6_pca_training_{variant}.pdf"))
+    prefix = "ch6_pca_training_global" if global_pca else "ch6_pca_training"
+    _save_fig(fig, os.path.join(out_dir, f"{prefix}_{variant}.pdf"))
 
 
 # =============================================================================
@@ -407,6 +440,8 @@ def plot_pca_frames_adv(
     variant: str,
     eps: float,
     out_dir: str,
+    *,
+    global_pca: bool = False,
 ) -> None:
     """
     Same layout as plot_pca_frames but z_2d contains adversarial latent codes.
@@ -429,16 +464,137 @@ def plot_pca_frames_adv(
 
     _add_legend(fig, 10, cmap)
     label = VARIANT_LABELS.get(variant, variant)
+    pca_desc = (
+        "PCA fit on global clean latent codes"
+        if global_pca
+        else "PCA fit on clean final epoch"
+    )
     fig.suptitle(
         rf"Latent space under PGD attack ($\varepsilon = {eps}$) — {label} ({arch})"
-        "\n★ = prototypes  |  dots = adversarial samples  |  PCA fit on clean final epoch",
+        f"\n★ = prototypes  |  dots = adversarial samples  |  {pca_desc}",
         fontsize=11, y=1.03,
     )
     plt.tight_layout()
 
     eps_tag = f"{eps:.3f}".replace(".", "p")
-    fname   = f"ch6_pca_training_{variant}_adv_eps{eps_tag}.pdf"
+    prefix  = "ch6_pca_training_global" if global_pca else "ch6_pca_training"
+    fname   = f"{prefix}_{variant}_adv_eps{eps_tag}.pdf"
     _save_fig(fig, os.path.join(out_dir, fname))
+
+
+# =============================================================================
+# Variant processing helpers
+# =============================================================================
+
+def load_variant_frames(
+    arch: str,
+    variant: str,
+    seed: int,
+) -> list[tuple[int, Path]] | None:
+    """Discover saved PCA frames for one variant, including epoch 0 base."""
+    print(f"Discovering PCA frame checkpoints for {variant} ...")
+    try:
+        all_frames = load_pca_frame_paths(arch, variant, seed)
+    except FileNotFoundError as e:
+        print(f"[ERROR] {e}")
+        print(
+            "  Make sure the fine-tuning was run with --save_n_frames N.\n"
+            "  See config.py -> EPOCH_CKPT_DIR_TEMPLATE."
+        )
+        return None
+
+    if len(all_frames) < 2:
+        print(
+            f"[ERROR] Only {len(all_frames)} frame(s) found for {variant} "
+            "(including epoch 0). Need at least 2.\n"
+            "  Run fine-tuning with --save_n_frames N (N >= 1)."
+        )
+        return None
+
+    print(f"  Frames found: {[ep for ep, _ in all_frames]}")
+    return all_frames
+
+
+def extract_variant_frame_data(
+    arch: str,
+    variant: str,
+    selected: list[tuple[int, Path]],
+    x_sub: torch.Tensor,
+    device: torch.device,
+) -> tuple[
+    list[nn.Module],
+    list[tuple[int, np.ndarray]],
+    list[tuple[np.ndarray, np.ndarray]],
+]:
+    """Load models and extract clean latent codes/prototypes for one variant."""
+    models_per_frame:  list[nn.Module]                     = []
+    z_clean_per_frame: list[tuple[int, np.ndarray]]        = []
+    proto_per_frame:   list[tuple[np.ndarray, np.ndarray]] = []
+
+    for epoch, ckpt_path in selected:
+        print(f"  Loading {variant} epoch {epoch} from {ckpt_path} ...")
+        model      = load_model_for_frame(arch, ckpt_path, device)
+        z          = extract_z(model, x_sub, device)
+        prototypes = extract_prototypes(arch, model)
+        proto_lbl  = get_proto_labels(model).numpy()
+
+        models_per_frame.append(model)
+        z_clean_per_frame.append((epoch, z))
+        proto_per_frame.append((prototypes, proto_lbl))
+
+    return models_per_frame, z_clean_per_frame, proto_per_frame
+
+
+def make_clean_frames(
+    z_clean_per_frame: list[tuple[int, np.ndarray]],
+    proto_per_frame: list[tuple[np.ndarray, np.ndarray]],
+    pca: PCA,
+) -> list[tuple[int, np.ndarray, np.ndarray, np.ndarray]]:
+    """Project clean latent codes and prototypes through the chosen PCA."""
+    return [
+        (epoch, project(pca, z), project(pca, protos), proto_lbl)
+        for (epoch, z), (protos, proto_lbl) in zip(z_clean_per_frame, proto_per_frame)
+    ]
+
+
+def generate_adversarial_figures(
+    models_per_frame: list[nn.Module],
+    z_clean_per_frame: list[tuple[int, np.ndarray]],
+    proto_per_frame: list[tuple[np.ndarray, np.ndarray]],
+    pca: PCA,
+    y_np: np.ndarray,
+    x_sub: torch.Tensor,
+    y_sub: torch.Tensor,
+    arch: str,
+    variant: str,
+    out_dir: str,
+    eps_list: list[float],
+    pgd_iters: int,
+    pgd_alpha: float,
+    device: torch.device,
+    *,
+    global_pca: bool = False,
+) -> None:
+    """Generate one adversarial PCA PDF per epsilon for one variant."""
+    for eps in eps_list:
+        print(f"\nGenerating adversarial PCA figure for {variant} -- eps={eps} ...")
+        frames_adv = []
+        for model, (epoch, _), (protos, proto_lbl) in zip(
+            models_per_frame, z_clean_per_frame, proto_per_frame
+        ):
+            print(f"  Attacking {variant} epoch {epoch} ...")
+            z_adv = extract_z_adv(
+                model, x_sub, y_sub, eps, device,
+                pgd_iters=pgd_iters,
+                pgd_alpha=pgd_alpha,
+            )
+            frames_adv.append(
+                (epoch, project(pca, z_adv), project(pca, protos), proto_lbl)
+            )
+        plot_pca_frames_adv(
+            frames_adv, pca, y_np, arch, variant, eps, out_dir,
+            global_pca=global_pca,
+        )
 
 
 # =============================================================================
@@ -450,8 +606,12 @@ def main() -> None:
         description="Chapter 6.2 — PCA of latent space evolution during fine-tuning."
     )
     parser.add_argument(
-        "--variant", type=str, required=True,
+        "--variant", type=str, default=None,
         help="FT variant name, e.g. B30-FT-0 or ProtoVAE-FT-0.",
+    )
+    parser.add_argument(
+        "--variants", type=str, nargs="+", default=None,
+        help="FT variant names to compare with one global PCA.",
     )
     parser.add_argument(
         "--arch", type=str, default=None,
@@ -485,9 +645,24 @@ def main() -> None:
         "--no_clean", action="store_true",
         help="Skip the clean figure (useful when only regenerating adversarial).",
     )
+    parser.add_argument(
+        "--pca_path", type=str, default=None,
+        help="Optional PCA .pkl to load instead of fitting a new PCA.",
+    )
 
     args = parser.parse_args()
-    if args.arch is None:
+    if args.variants is not None:
+        if args.variant is not None:
+            parser.error("Use either --variant or --variants, not both.")
+        if args.arch is None:
+            parser.error("--arch is required when --variants is provided.")
+        try:
+            validate_variants_for_arch(args.arch, args.variants)
+        except ValueError as e:
+            parser.error(str(e))
+    elif args.variant is None:
+        parser.error("Either --variant or --variants is required.")
+    elif args.arch is None:
         args.arch = infer_arch_from_variant(args.variant)
 
     plt.rcParams.update(RC_PARAMS)
@@ -501,6 +676,76 @@ def main() -> None:
     print(f"\nLoading {args.n_samples} test samples ...")
     x_sub, y_sub = get_test_subset(args.n_samples, args.seed)
     y_np = y_sub.numpy()
+
+    if args.variants is not None:
+        variants = args.variants
+        variant_data = {}
+        all_clean_z = []
+
+        for variant in variants:
+            selected = load_variant_frames(args.arch, variant, args.seed)
+            if selected is None:
+                return
+
+            models_per_frame, z_clean_per_frame, proto_per_frame = extract_variant_frame_data(
+                args.arch, variant, selected, x_sub, device
+            )
+            variant_data[variant] = {
+                "models_per_frame": models_per_frame,
+                "z_clean_per_frame": z_clean_per_frame,
+                "proto_per_frame": proto_per_frame,
+            }
+            all_clean_z.extend(z for _, z in z_clean_per_frame)
+
+        if args.pca_path is not None:
+            print(f"\nLoading PCA from {args.pca_path} ...")
+            pca = load_pca(args.pca_path)
+        else:
+            print("\nFitting global PCA on clean latent codes from all variants/epochs ...")
+            z_global = np.concatenate(all_clean_z, axis=0)
+            pca = fit_pca(z_global)
+        print(
+            f"  Explained variance: PC1={pca.explained_variance_ratio_[0]:.1%}, "
+            f"PC2={pca.explained_variance_ratio_[1]:.1%}"
+        )
+        if args.pca_path is None:
+            pca_out_path = os.path.join(out_dir, f"ch6_pca_training_global_{args.arch}_pca.pkl")
+            save_pca(pca, pca_out_path)
+
+        for variant in variants:
+            data = variant_data[variant]
+            frames_clean = make_clean_frames(
+                data["z_clean_per_frame"], data["proto_per_frame"], pca
+            )
+
+            if not args.no_clean:
+                print(f"\nGenerating clean PCA figure for {variant} ...")
+                plot_pca_frames(
+                    frames_clean, pca, y_np, args.arch, variant, out_dir,
+                    global_pca=True,
+                )
+
+            if args.show_adv:
+                generate_adversarial_figures(
+                    data["models_per_frame"],
+                    data["z_clean_per_frame"],
+                    data["proto_per_frame"],
+                    pca,
+                    y_np,
+                    x_sub,
+                    y_sub,
+                    args.arch,
+                    variant,
+                    out_dir,
+                    args.eps_list,
+                    args.pgd_iters,
+                    args.pgd_alpha,
+                    device,
+                    global_pca=True,
+                )
+
+        print("\nDone.")
+        return
 
     # ------------------------------------------------------------------
     # 2. Discover epoch frame checkpoints
@@ -547,11 +792,15 @@ def main() -> None:
         proto_per_frame.append((prototypes, proto_lbl))
 
     # ------------------------------------------------------------------
-    # 4. Fit PCA on the FINAL frame's clean latent codes
+    # 4. Fit PCA on the FINAL frame's clean latent codes, or load one.
     # ------------------------------------------------------------------
-    print("\nFitting PCA on final-epoch latent codes ...")
-    _, z_final = z_clean_per_frame[-1]
-    pca = fit_pca(z_final)
+    if args.pca_path is not None:
+        print(f"\nLoading PCA from {args.pca_path} ...")
+        pca = load_pca(args.pca_path)
+    else:
+        print("\nFitting PCA on final-epoch latent codes ...")
+        _, z_final = z_clean_per_frame[-1]
+        pca = fit_pca(z_final)
     print(
         f"  Explained variance: PC1={pca.explained_variance_ratio_[0]:.1%}, "
         f"PC2={pca.explained_variance_ratio_[1]:.1%}"
