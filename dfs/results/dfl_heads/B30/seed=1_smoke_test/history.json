@@ -1,0 +1,27 @@
+{
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 3.496356964111328,
+      "train_dfl_loss": 3.496356964111328,
+      "train_ce_loss": 2.2445144653320312,
+      "train_mu_mae_raw": 1.9407991536458333,
+      "train_mu_mae_clamped": 1.940787109375,
+      "train_mu_rmse_clamped": 2.5270147180846942,
+      "train_mu_corr_clamped": 0.17135148227616012,
+      "train_target_saturation_rate": 0.00013333333333333334,
+      "train_det_acc": 1.0,
+      "train_mean_acc": 0.174,
+      "val_loss": 3.4801979064941406,
+      "val_dfl_loss": 3.4801979064941406,
+      "val_ce_loss": 2.257474184036255,
+      "val_mu_mae_raw": 1.9670203125,
+      "val_mu_mae_clamped": 1.9670203125,
+      "val_mu_rmse_clamped": 2.54822364599342,
+      "val_mu_corr_clamped": 0.1302379917820003,
+      "val_target_saturation_rate": 0.0,
+      "val_det_acc": 0.968,
+      "val_mean_acc": 0.152
+    }
+  ]
+}

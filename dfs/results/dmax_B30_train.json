@@ -1,0 +1,34 @@
+{
+  "split": "train",
+  "checkpoint": "E:\\Hugo\\UNI\\TFG\\Praktikak-PrototypeDNN-Robustness-main\\saved_model\\mnist_model\\mnist_cae_balanced_clstsep_1500_0.002_250_True_0.0_20_1_1_1_1.0_0.0_30_4_32_1\\mnist_cae00750.pth",
+  "num_samples_processed": 60000,
+  "num_distances_processed": 1800000,
+  "min": 0.001148223876953125,
+  "max": 15.389402389526367,
+  "mean": 4.945284366607666,
+  "std": 2.2412075996398926,
+  "percentiles": {
+    "p50": 5.067574501037598,
+    "p90": 7.647672653198242,
+    "p95": 8.401681900024414,
+    "p99": 9.799942016601562,
+    "p99.5": 10.32674789428711,
+    "p99.9": 11.487093925476074
+  },
+  "candidate_d_max": {
+    "p95": 8.401681900024414,
+    "p99": 9.799942016601562,
+    "p99.5": 10.32674789428711,
+    "p99.9": 11.487093925476074,
+    "max": 15.389402389526367
+  },
+  "saturation_rates": {
+    "p95": 0.05000000074505806,
+    "p99": 0.009999999776482582,
+    "p99.5": 0.004999999888241291,
+    "p99.9": 0.0010000000474974513,
+    "max": 0.0
+  },
+  "recommended_d_max": 10.32674789428711,
+  "recommendation_note": "p99.5 is a balanced default: smaller d_max gives more bin resolution for common distances, while larger d_max such as p99.9 or max avoids saturating rare large distances."
+}

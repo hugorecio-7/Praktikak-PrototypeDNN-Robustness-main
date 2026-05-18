@@ -1,0 +1,34 @@
+{
+  "split": "train",
+  "checkpoint": "E:\\Hugo\\UNI\\TFG\\Praktikak-PrototypeDNN-Robustness-main\\tfg_models\\B30\\B30-FT-E-M\\seed=1\\checkpoints\\B30_B30-FT-E_seed1_best_val_adv_acc.pth",
+  "num_samples_processed": 60000,
+  "num_distances_processed": 1800000,
+  "min": 0.0068416595458984375,
+  "max": 12.37431526184082,
+  "mean": 4.045657157897949,
+  "std": 1.84864342212677,
+  "percentiles": {
+    "p50": 4.1059041023254395,
+    "p90": 6.282625198364258,
+    "p95": 7.01127815246582,
+    "p99": 8.498970985412598,
+    "p99.5": 9.040358543395996,
+    "p99.9": 10.055288314819336
+  },
+  "candidate_d_max": {
+    "p95": 7.01127815246582,
+    "p99": 8.498970985412598,
+    "p99.5": 9.040358543395996,
+    "p99.9": 10.055288314819336,
+    "max": 12.37431526184082
+  },
+  "saturation_rates": {
+    "p95": 0.05000000074505806,
+    "p99": 0.009999999776482582,
+    "p99.5": 0.004999999888241291,
+    "p99.9": 0.0010000000474974513,
+    "max": 0.0
+  },
+  "recommended_d_max": 9.040358543395996,
+  "recommendation_note": "p99.5 is a balanced default: smaller d_max gives more bin resolution for common distances, while larger d_max such as p99.9 or max avoids saturating rare large distances."
+}
