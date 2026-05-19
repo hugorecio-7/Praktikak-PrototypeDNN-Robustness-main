@@ -22,6 +22,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+REPO_DFL_HEAD_ROOT = REPO_ROOT / "dfs" / "results" / "dfl_heads"
+
 from data_loader import get_train_val_loader  # noqa: E402
 from adversarial_attacks import PGDLInf_attack  # noqa: E402
 from modules import CAEModel_Balanced  # noqa: E402
@@ -200,6 +202,7 @@ def resolve_checkpoint_path(cfg: TrainConfig) -> Optional[Path]:
     checkpoint_path = Path(checkpoint)
     if not checkpoint_path.is_absolute():
         checkpoint_path = REPO_ROOT / checkpoint_path
+    ensure_load_path_is_in_repo(checkpoint_path, "B30 checkpoint")
     return checkpoint_path
 
 
@@ -290,10 +293,20 @@ def safe_float_label(value: float) -> str:
     return f"{value:g}".replace("-", "m").replace(".", "p")
 
 
+def ensure_load_path_is_in_repo(path: Path, label: str) -> None:
+    try:
+        path.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError as exc:
+        raise ValueError(
+            f"{label} must be loaded from inside the repository. Got: {path}"
+        ) from exc
+
+
 def resolve_relative_to_repo(path: str | Path) -> Path:
     resolved = Path(path)
     if not resolved.is_absolute():
         resolved = REPO_ROOT / resolved
+    ensure_load_path_is_in_repo(resolved, "DFL head checkpoint")
     return resolved
 
 
@@ -304,14 +317,13 @@ def resolve_init_dfl_head_path(cfg: TrainConfig) -> Optional[Path]:
         return None
 
     path = (
-        Path(cfg.save_root)
+        REPO_DFL_HEAD_ROOT
         / cfg.model_key
         / f"seed={cfg.seed}_{cfg.init_run_tag}"
         / "checkpoints"
         / "best_dfl_head.pt"
     )
-    if not path.is_absolute():
-        path = REPO_ROOT / path
+    ensure_load_path_is_in_repo(path, "Initial DFL head checkpoint")
     return path
 
 

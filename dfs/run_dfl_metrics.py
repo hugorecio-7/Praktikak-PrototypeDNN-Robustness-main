@@ -23,6 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+REPO_DFL_HEAD_ROOT = REPO_ROOT / "dfs" / "results" / "dfl_heads"
+
 from adversarial_attacks import PGDLInf_attack  # noqa: E402
 from data_loader import get_test_loader  # noqa: E402
 from metric_calculators import (  # noqa: E402
@@ -239,11 +241,7 @@ def save_curve_csv(path: str | Path, rows: List[Dict[str, Any]]) -> None:
 
 
 def resolve_default_dfl_head_root() -> str:
-    if Path("/kaggle/working/dfs_dfl_heads").exists():
-        return "/kaggle/working/dfs_dfl_heads"
-    if Path("/content/dfs_dfl_heads").exists():
-        return "/content/dfs_dfl_heads"
-    return "dfs/results/dfl_heads"
+    return str(REPO_DFL_HEAD_ROOT)
 
 
 def resolve_default_out_root() -> str:
@@ -259,6 +257,15 @@ def resolve_repo_path(path: str | Path) -> Path:
     if not resolved.is_absolute():
         resolved = REPO_ROOT / resolved
     return resolved
+
+
+def ensure_load_path_is_in_repo(path: Path, label: str) -> None:
+    try:
+        path.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError as exc:
+        raise ValueError(
+            f"{label} must be loaded from inside the repository. Got: {path}"
+        ) from exc
 
 
 def torch_load(path: Path, device: torch.device) -> Any:
@@ -350,12 +357,15 @@ def parse_dfl_head_overrides(items: Optional[List[str]]) -> Dict[str, Path]:
         if ":" not in item:
             raise ValueError(f"Invalid --dfl-head override {item!r}. Expected MODEL_KEY:PATH.")
         model_key, path = item.split(":", 1)
-        overrides[model_key] = resolve_repo_path(path)
+        resolved = resolve_repo_path(path)
+        ensure_load_path_is_in_repo(resolved, "DFL head override")
+        overrides[model_key] = resolved
     return overrides
 
 
 def default_dfl_head_path(cfg: EvalConfig, model_key: str) -> Path:
     root = resolve_repo_path(cfg.dfl_head_root)
+    ensure_load_path_is_in_repo(root, "DFL head root")
     return root / model_key / f"seed={cfg.seed}_{cfg.dfl_run_tag}" / "checkpoints" / "best_dfl_head.pt"
 
 
