@@ -284,6 +284,143 @@ def compute_pgd_path_efficiency(
     return efficiency.astype(np.float32)
 
 
+def _as_proto_labels_tensor(
+    proto_labels: torch.Tensor | list[int] | np.ndarray,
+    device: torch.device,
+) -> torch.Tensor:
+    """Convert prototype labels to a 1D tensor on the requested device."""
+    if torch.is_tensor(proto_labels):
+        labels = proto_labels.to(device=device)
+    else:
+        labels = torch.as_tensor(proto_labels, device=device)
+    return labels.long().reshape(-1)
+
+
+def _correct_wrong_min_distances(
+    distance_matrix: torch.Tensor,
+    y: torch.Tensor,
+    proto_labels: torch.Tensor | list[int] | np.ndarray,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return nearest correct-class and wrong-class prototype distances."""
+    if distance_matrix.dim() != 2:
+        raise ValueError(
+            "distance_matrix must have shape [B, M], "
+            f"got {tuple(distance_matrix.shape)}"
+        )
+    if y.dim() != 1:
+        raise ValueError(f"y must have shape [B], got {tuple(y.shape)}")
+    if y.shape[0] != distance_matrix.shape[0]:
+        raise ValueError(
+            "y length must match distance_matrix batch size, "
+            f"got {y.shape[0]} and {distance_matrix.shape[0]}"
+        )
+
+    labels = _as_proto_labels_tensor(proto_labels, distance_matrix.device)
+    if labels.numel() != distance_matrix.shape[1]:
+        raise ValueError(
+            "proto_labels length must match number of prototypes, "
+            f"got {labels.numel()} and {distance_matrix.shape[1]}"
+        )
+
+    y = y.to(device=distance_matrix.device, dtype=labels.dtype)
+    correct_mask = labels.unsqueeze(0).eq(y.unsqueeze(1))
+    wrong_mask = ~correct_mask
+
+    if not correct_mask.any(dim=1).all():
+        missing = torch.nonzero(~correct_mask.any(dim=1), as_tuple=False).flatten()
+        raise ValueError(
+            "At least one sample has no correct-class prototypes. "
+            f"Sample indices: {missing[:10].detach().cpu().tolist()}"
+        )
+    if not wrong_mask.any(dim=1).all():
+        missing = torch.nonzero(~wrong_mask.any(dim=1), as_tuple=False).flatten()
+        raise ValueError(
+            "At least one sample has no wrong-class prototypes. "
+            f"Sample indices: {missing[:10].detach().cpu().tolist()}"
+        )
+
+    inf = torch.tensor(float("inf"), device=distance_matrix.device, dtype=distance_matrix.dtype)
+    correct_distances = torch.where(correct_mask, distance_matrix, inf)
+    wrong_distances = torch.where(wrong_mask, distance_matrix, inf)
+    correct_min = correct_distances.min(dim=1).values
+    wrong_min = wrong_distances.min(dim=1).values
+    return correct_min, wrong_min
+
+
+def calc_m_proto_from_distances(
+    distance_matrix: torch.Tensor,
+    y: torch.Tensor,
+    proto_labels: torch.Tensor | list[int] | np.ndarray,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """
+    Compute prototype margins directly from a [B, M] distance matrix.
+
+    Lower distances are better. For each sample, the margin is
+
+        (wrong_min - correct_min) / (wrong_min + correct_min + eps)
+
+    where correct_min is the nearest prototype with label y and wrong_min is the
+    nearest prototype with any other label. Positive margins mean the nearest
+    correct-class prototype is closer than the nearest wrong-class prototype.
+    """
+    correct_min, wrong_min = _correct_wrong_min_distances(
+        distance_matrix=distance_matrix,
+        y=y,
+        proto_labels=proto_labels,
+    )
+    return (wrong_min - correct_min) / (wrong_min + correct_min + eps)
+
+
+def calc_artificial_prototype_match_suppression(
+    mu_distances: torch.Tensor,
+    used_distances: torch.Tensor,
+    y: torch.Tensor,
+    proto_labels: torch.Tensor | list[int] | np.ndarray,
+    eps: float = 1e-8,
+) -> dict[str, torch.Tensor]:
+    """
+    Diagnose artificial prototype-match suppression by risk-aware distances.
+
+    A false artificial match under ``mu`` occurs when the nearest wrong-class
+    prototype under ``mu`` is closer than the nearest correct-class prototype.
+    It is suppressed if the risk-aware distances reverse that ordering. The
+    harm diagnostic marks the opposite case: ``mu`` preferred the correct
+    prototype, but the used distance prefers the wrong prototype.
+    """
+    del eps  # kept for signature symmetry and future numerical variants
+    if mu_distances.shape != used_distances.shape:
+        raise ValueError(
+            "mu_distances and used_distances must have the same shape, "
+            f"got {tuple(mu_distances.shape)} and {tuple(used_distances.shape)}"
+        )
+
+    correct_mu, wrong_mu = _correct_wrong_min_distances(
+        distance_matrix=mu_distances,
+        y=y,
+        proto_labels=proto_labels,
+    )
+    correct_used, wrong_used = _correct_wrong_min_distances(
+        distance_matrix=used_distances,
+        y=y,
+        proto_labels=proto_labels,
+    )
+
+    false_match_mu = wrong_mu < correct_mu
+    suppressed_match = false_match_mu & (correct_used < wrong_used)
+    risk_harm_match = (correct_mu < wrong_mu) & (wrong_used < correct_used)
+
+    return {
+        "false_match_mu": false_match_mu,
+        "suppressed_match": suppressed_match,
+        "risk_harm_match": risk_harm_match,
+        "correct_mu": correct_mu,
+        "wrong_mu": wrong_mu,
+        "correct_used": correct_used,
+        "wrong_used": wrong_used,
+    }
+
+
 def compute_empirical_robustness_interval(
     correct_matrix: np.ndarray,
     eps_grid: np.ndarray,

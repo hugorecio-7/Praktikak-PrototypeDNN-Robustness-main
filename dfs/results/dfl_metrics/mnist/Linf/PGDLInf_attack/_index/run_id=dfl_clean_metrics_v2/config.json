@@ -1,0 +1,37 @@
+{
+  "models": [
+    "B30",
+    "B30-FT-E-M"
+  ],
+  "seed": 1,
+  "data_dir": "data",
+  "batch_size": 250,
+  "num_workers": 0,
+  "device": "cpu",
+  "dfl_head_root": "dfs/results/dfl_heads",
+  "dfl_run_tag": "dmax12_bins32",
+  "dfl_head": null,
+  "allow_random_dfl_head": false,
+  "betas": [
+    0.0,
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.0
+  ],
+  "clean_only": true,
+  "attack": "PGDLInf_attack",
+  "max_eps": 0.3,
+  "step": 0.025,
+  "pgd_iters": 80,
+  "pgd_alpha": 0.01,
+  "random_start": true,
+  "max_batches": null,
+  "out_root": "dfs/results/dfl_metrics",
+  "run_id": "dfl_clean_metrics_v2",
+  "save_per_example": false,
+  "rpgd_binary_steps": 0,
+  "rpgd_binary_tol": null,
+  "make_plots": true
+}

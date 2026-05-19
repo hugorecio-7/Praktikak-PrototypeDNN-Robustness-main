@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from data_loader import get_train_val_loader  # noqa: E402
+from adversarial_attacks import PGDLInf_attack  # noqa: E402
 from modules import CAEModel_Balanced  # noqa: E402
 from dfs.dfl_layer import DistributionalPrototypeDistanceLayer  # noqa: E402
 from dfs.dfl_losses import DistributionFocalDistanceLoss  # noqa: E402
@@ -83,6 +84,27 @@ class TrainConfig:
     hidden_dim: int
     lambda_dfl: float
     lambda_ce: float
+    adv_train: bool
+    adv_eps: float
+    adv_alpha: float
+    adv_steps: int
+    adv_random_start: bool
+    adv_beta: float
+    lambda_clean_dfl: float
+    lambda_clean_ce: float
+    lambda_adv_dfl: float
+    lambda_adv_ce: float
+    use_b30_clstsep_loss: bool
+    lambda_clean_b30_loss: float
+    lambda_adv_b30_loss: float
+    b30_lambda_class: float
+    b30_lambda_ae: float
+    b30_lambda_1: float
+    b30_lambda_clus: float
+    b30_lambda_sep: float
+    init_dfl_head: Optional[str]
+    init_run_tag: Optional[str]
+    early_stop_monitor: str
     max_train_batches: Optional[int]
     max_val_batches: Optional[int]
     run_tag: str
@@ -264,6 +286,334 @@ def accuracy_from_logits(logits: torch.Tensor, y: torch.Tensor) -> int:
     return int((logits.argmax(dim=1) == y).sum().item())
 
 
+def safe_float_label(value: float) -> str:
+    return f"{value:g}".replace("-", "m").replace(".", "p")
+
+
+def resolve_relative_to_repo(path: str | Path) -> Path:
+    resolved = Path(path)
+    if not resolved.is_absolute():
+        resolved = REPO_ROOT / resolved
+    return resolved
+
+
+def resolve_init_dfl_head_path(cfg: TrainConfig) -> Optional[Path]:
+    if cfg.init_dfl_head is not None:
+        return resolve_relative_to_repo(cfg.init_dfl_head)
+    if cfg.init_run_tag is None:
+        return None
+
+    path = (
+        Path(cfg.save_root)
+        / cfg.model_key
+        / f"seed={cfg.seed}_{cfg.init_run_tag}"
+        / "checkpoints"
+        / "best_dfl_head.pt"
+    )
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path
+
+
+def load_initial_dfl_head_if_requested(
+    dfl_layer: DistributionalPrototypeDistanceLayer,
+    cfg: TrainConfig,
+    latent_dim: int,
+    device: torch.device,
+) -> Optional[Path]:
+    init_path = resolve_init_dfl_head_path(cfg)
+    if init_path is None:
+        if cfg.adv_train:
+            print(
+                "WARNING: adversarial calibration is starting from a random DFL "
+                "head. Normally this should start from a clean-trained DFL head."
+            )
+        return None
+
+    if not init_path.exists():
+        raise FileNotFoundError(f"Initial DFL head checkpoint does not exist: {init_path}")
+
+    checkpoint = torch_load(init_path, device)
+    if not isinstance(checkpoint, dict) or "dfl_layer_state" not in checkpoint:
+        keys = list(checkpoint.keys()) if isinstance(checkpoint, dict) else type(checkpoint)
+        raise TypeError(
+            f"Initial DFL checkpoint has unsupported format at {init_path}. "
+            f"Observed keys/type: {keys}"
+        )
+
+    expected = {
+        "latent_dim": latent_dim,
+        "num_bins": cfg.num_bins,
+        "d_min": cfg.d_min,
+        "d_max": cfg.d_max,
+        "hidden_dim": cfg.hidden_dim,
+    }
+    actual = {
+        "latent_dim": int(checkpoint.get("latent_dim", -1)),
+        "num_bins": int(checkpoint.get("num_bins", -1)),
+        "d_min": float(checkpoint.get("d_min", float("nan"))),
+        "d_max": float(checkpoint.get("d_max", float("nan"))),
+        "hidden_dim": int(checkpoint.get("hidden_dim", -1)),
+    }
+    mismatches = {
+        key: (expected[key], actual[key])
+        for key in expected
+        if expected[key] != actual[key]
+    }
+    if mismatches:
+        raise ValueError(
+            f"Initial DFL head metadata does not match current config: {mismatches}"
+        )
+
+    dfl_layer.load_state_dict(checkpoint["dfl_layer_state"])
+    print(f"Initialized DFL head from {init_path}")
+    return init_path
+
+
+def assert_no_base_gradients(base_model: nn.Module) -> None:
+    bad = [
+        name
+        for name, parameter in base_model.named_parameters()
+        if parameter.grad is not None
+    ]
+    if bad:
+        base_model.zero_grad(set_to_none=True)
+        raise RuntimeError(f"Frozen base model received gradients: {bad[:20]}")
+
+
+def assert_dfl_has_finite_gradient(dfl_layer: nn.Module) -> None:
+    has_grad = any(
+        parameter.grad is not None and torch.isfinite(parameter.grad).all()
+        for parameter in dfl_layer.parameters()
+    )
+    if not has_grad:
+        raise RuntimeError("DFL layer did not receive a finite gradient.")
+
+
+def generate_adv_batch_for_dfl_head(
+    wrapper: RiskAwareB30Wrapper,
+    dfl_layer: DistributionalPrototypeDistanceLayer,
+    x_clean: torch.Tensor,
+    y: torch.Tensor,
+    cfg: TrainConfig,
+) -> torch.Tensor:
+    base_training = wrapper.training
+    dfl_training = dfl_layer.training
+    wrapper.eval()
+    dfl_layer.eval()
+
+    def loss_f(batch_x: torch.Tensor) -> torch.Tensor:
+        logits = wrapper(batch_x)
+        return F.cross_entropy(logits, y)
+
+    x_adv = PGDLInf_attack(
+        x_clean,
+        loss_f,
+        iters=cfg.adv_steps,
+        eps=cfg.adv_eps,
+        alpha=cfg.adv_alpha,
+        random_start=cfg.adv_random_start,
+    )
+
+    wrapper.train(base_training)
+    dfl_layer.train(dfl_training)
+    return x_adv.detach()
+
+
+def compute_dfl_branch_terms(
+    wrapper: RiskAwareB30Wrapper,
+    dfl_loss_fn: DistributionFocalDistanceLoss,
+    x_input: torch.Tensor,
+    y: torch.Tensor,
+    cfg: TrainConfig,
+    branch_name: str,
+) -> Dict[str, torch.Tensor]:
+    outputs = wrapper.compute_distance_outputs(x_input)
+    d_det = outputs["d_det"]
+    mu = outputs["mu"]
+    sigma = outputs["sigma"]
+    bin_logits = outputs["bin_logits"]
+    logits = outputs["logits"]
+
+    loss_dfl = dfl_loss_fn(bin_logits, d_det.detach())
+    loss_ce = F.cross_entropy(logits, y)
+    zero = loss_dfl.new_zeros(())
+
+    terms: Dict[str, torch.Tensor] = {
+        "logits": logits,
+        "d_det": d_det,
+        "mu": mu,
+        "sigma": sigma,
+        "bin_logits": bin_logits,
+        "loss_dfl": loss_dfl,
+        "loss_ce": loss_ce,
+        "b30_full_loss": zero,
+        "b30_ce": zero,
+        "b30_e1": zero,
+        "b30_clst": zero,
+        "b30_sep": zero,
+        "b30_recon": zero,
+    }
+
+    if cfg.use_b30_clstsep_loss:
+        try:
+            from loss_functions import ClstSepLoss
+        except Exception as exc:  # pragma: no cover - import failure should be explicit
+            raise RuntimeError("Failed to import ClstSepLoss from loss_functions.py") from exc
+
+        try:
+            (
+                b30_full,
+                b30_ce,
+                b30_e1,
+                b30_clst,
+                b30_sep,
+                b30_recon,
+            ) = ClstSepLoss(
+                wrapper,
+                x_input,
+                y,
+                logits,
+                cfg.b30_lambda_class,
+                cfg.b30_lambda_1,
+                cfg.b30_lambda_clus,
+                cfg.b30_lambda_sep,
+                cfg.b30_lambda_ae,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "ClstSepLoss is not compatible with the current DFL wrapper call."
+            ) from exc
+
+        terms.update(
+            {
+                "b30_full_loss": b30_full,
+                "b30_ce": b30_ce,
+                "b30_e1": b30_e1,
+                "b30_clst": b30_clst,
+                "b30_sep": b30_sep,
+                "b30_recon": b30_recon,
+            }
+        )
+
+    if branch_name == "clean":
+        total = (
+            cfg.lambda_clean_dfl * loss_dfl
+            + cfg.lambda_clean_ce * loss_ce
+            + cfg.lambda_clean_b30_loss * terms["b30_full_loss"]
+        )
+    elif branch_name == "adv":
+        total = (
+            cfg.lambda_adv_dfl * loss_dfl
+            + cfg.lambda_adv_ce * loss_ce
+            + cfg.lambda_adv_b30_loss * terms["b30_full_loss"]
+        )
+    else:
+        raise ValueError(f"Unknown branch_name={branch_name!r}")
+
+    terms["loss"] = total
+    return terms
+
+
+def new_metric_accumulators() -> tuple[Dict[str, float], Dict[str, float]]:
+    totals = {
+        "loss": 0.0,
+        "dfl_loss": 0.0,
+        "ce_loss": 0.0,
+        "b30_full_loss": 0.0,
+        "b30_ce": 0.0,
+        "b30_e1": 0.0,
+        "b30_clst": 0.0,
+        "b30_sep": 0.0,
+        "b30_recon": 0.0,
+        "samples": 0,
+        "distances": 0,
+        "mu_abs_raw": 0.0,
+        "mu_abs_clamped": 0.0,
+        "mu_sq_clamped": 0.0,
+        "saturated": 0.0,
+        "det_correct": 0,
+        "risk_correct": 0,
+    }
+    corr_sums = {
+        "n": 0,
+        "sum_x": 0.0,
+        "sum_y": 0.0,
+        "sum_x2": 0.0,
+        "sum_y2": 0.0,
+        "sum_xy": 0.0,
+    }
+    return totals, corr_sums
+
+
+def accumulate_branch_metrics(
+    totals: Dict[str, float],
+    corr_sums: Dict[str, float],
+    terms: Dict[str, torch.Tensor],
+    wrapper: RiskAwareB30Wrapper,
+    y: torch.Tensor,
+    cfg: TrainConfig,
+) -> None:
+    d_det = terms["d_det"]
+    mu = terms["mu"]
+    logits = terms["logits"]
+    det_logits = wrapper.fc(d_det)
+    target_clamped = torch.clamp(d_det, min=cfg.d_min, max=cfg.d_max)
+    clamped_error = mu - target_clamped
+
+    batch_samples = y.shape[0]
+    batch_distances = d_det.numel()
+
+    totals["samples"] += batch_samples
+    totals["distances"] += batch_distances
+    totals["loss"] += terms["loss"].detach().item() * batch_samples
+    totals["dfl_loss"] += terms["loss_dfl"].detach().item() * batch_samples
+    totals["ce_loss"] += terms["loss_ce"].detach().item() * batch_samples
+    for key in ("b30_full_loss", "b30_ce", "b30_e1", "b30_clst", "b30_sep", "b30_recon"):
+        totals[key] += terms[key].detach().item() * batch_samples
+    totals["mu_abs_raw"] += (mu - d_det).abs().detach().sum().item()
+    totals["mu_abs_clamped"] += clamped_error.abs().detach().sum().item()
+    totals["mu_sq_clamped"] += clamped_error.pow(2).detach().sum().item()
+    totals["saturated"] += (d_det > cfg.d_max).float().detach().sum().item()
+    totals["det_correct"] += accuracy_from_logits(det_logits, y)
+    totals["risk_correct"] += accuracy_from_logits(logits, y)
+    update_corr_sums(corr_sums, mu, target_clamped)
+
+
+def finalize_branch_metrics(
+    totals: Dict[str, float],
+    corr_sums: Dict[str, float],
+    include_b30: bool,
+) -> Dict[str, float]:
+    if totals["samples"] == 0 or totals["distances"] == 0:
+        raise RuntimeError("No batches were processed for a branch.")
+
+    result = {
+        "loss": totals["loss"] / totals["samples"],
+        "dfl_loss": totals["dfl_loss"] / totals["samples"],
+        "ce_loss": totals["ce_loss"] / totals["samples"],
+        "mu_mae_raw": totals["mu_abs_raw"] / totals["distances"],
+        "mu_mae_clamped": totals["mu_abs_clamped"] / totals["distances"],
+        "mu_rmse_clamped": (totals["mu_sq_clamped"] / totals["distances"]) ** 0.5,
+        "mu_corr_clamped": pearson_corr_from_sums(**corr_sums),
+        "target_saturation_rate": totals["saturated"] / totals["distances"],
+        "det_acc": totals["det_correct"] / totals["samples"],
+        "risk_acc": totals["risk_correct"] / totals["samples"],
+    }
+    if include_b30:
+        result.update(
+            {
+                "b30_full_loss": totals["b30_full_loss"] / totals["samples"],
+                "b30_ce": totals["b30_ce"] / totals["samples"],
+                "b30_e1": totals["b30_e1"] / totals["samples"],
+                "b30_clst": totals["b30_clst"] / totals["samples"],
+                "b30_sep": totals["b30_sep"] / totals["samples"],
+                "b30_recon": totals["b30_recon"] / totals["samples"],
+            }
+        )
+    return result
+
+
 def run_epoch(
     wrapper: RiskAwareB30Wrapper,
     base_model: nn.Module,
@@ -370,6 +720,100 @@ def run_epoch(
     }
 
 
+def run_epoch_adv(
+    wrapper: RiskAwareB30Wrapper,
+    base_model: nn.Module,
+    dfl_layer: DistributionalPrototypeDistanceLayer,
+    dfl_loss_fn: DistributionFocalDistanceLoss,
+    loader: torch.utils.data.DataLoader,
+    cfg: TrainConfig,
+    optimizer: Optional[optim.Optimizer],
+    max_batches: Optional[int],
+    phase: str,
+) -> Dict[str, float]:
+    is_train = optimizer is not None
+    base_model.eval()
+    wrapper.eval()
+    dfl_layer.train(is_train)
+
+    clean_totals, clean_corr = new_metric_accumulators()
+    adv_totals, adv_corr = new_metric_accumulators()
+    pbar = tqdm(loader, desc=phase, leave=False)
+
+    for batch_idx, (x, y) in enumerate(pbar):
+        if max_batches is not None and batch_idx >= max_batches:
+            break
+
+        x = x.to(cfg.device)
+        y = y.to(cfg.device)
+
+        x_adv = generate_adv_batch_for_dfl_head(wrapper, dfl_layer, x, y, cfg)
+
+        if is_train:
+            optimizer.zero_grad(set_to_none=True)
+            adv_terms = compute_dfl_branch_terms(
+                wrapper=wrapper,
+                dfl_loss_fn=dfl_loss_fn,
+                x_input=x_adv,
+                y=y,
+                cfg=cfg,
+                branch_name="adv",
+            )
+            adv_terms["loss"].backward()
+            assert_no_base_gradients(base_model)
+            if batch_idx == 0:
+                assert_dfl_has_finite_gradient(dfl_layer)
+            optimizer.step()
+
+            optimizer.zero_grad(set_to_none=True)
+            clean_terms = compute_dfl_branch_terms(
+                wrapper=wrapper,
+                dfl_loss_fn=dfl_loss_fn,
+                x_input=x,
+                y=y,
+                cfg=cfg,
+                branch_name="clean",
+            )
+            clean_terms["loss"].backward()
+            assert_no_base_gradients(base_model)
+            if batch_idx == 0:
+                assert_dfl_has_finite_gradient(dfl_layer)
+            optimizer.step()
+        else:
+            with torch.no_grad():
+                clean_terms = compute_dfl_branch_terms(
+                    wrapper=wrapper,
+                    dfl_loss_fn=dfl_loss_fn,
+                    x_input=x,
+                    y=y,
+                    cfg=cfg,
+                    branch_name="clean",
+                )
+                adv_terms = compute_dfl_branch_terms(
+                    wrapper=wrapper,
+                    dfl_loss_fn=dfl_loss_fn,
+                    x_input=x_adv,
+                    y=y,
+                    cfg=cfg,
+                    branch_name="adv",
+                )
+
+        accumulate_branch_metrics(clean_totals, clean_corr, clean_terms, wrapper, y, cfg)
+        accumulate_branch_metrics(adv_totals, adv_corr, adv_terms, wrapper, y, cfg)
+
+        pbar.set_postfix(
+            clean=f"{clean_terms['loss'].detach().item():.4f}",
+            adv=f"{adv_terms['loss'].detach().item():.4f}",
+        )
+
+    clean_metrics = finalize_branch_metrics(clean_totals, clean_corr, cfg.use_b30_clstsep_loss)
+    adv_metrics = finalize_branch_metrics(adv_totals, adv_corr, cfg.use_b30_clstsep_loss)
+    return {
+        **{f"clean_{name}": value for name, value in clean_metrics.items()},
+        **{f"adv_{name}": value for name, value in adv_metrics.items()},
+    }
+
+
 def save_dfl_checkpoint(
     path: Path,
     cfg: TrainConfig,
@@ -378,8 +822,10 @@ def save_dfl_checkpoint(
     epoch: int,
     best_val_mu_mae_clamped: float,
     best_val_mean_acc: float,
+    best_monitor_value: float,
     latent_dim: int,
     checkpoint_path: Optional[Path],
+    init_dfl_head_path: Optional[Path],
 ) -> None:
     torch.save(
         {
@@ -390,11 +836,26 @@ def save_dfl_checkpoint(
             "optimizer_state": optimizer.state_dict(),
             "best_val_mu_mae_clamped": best_val_mu_mae_clamped,
             "best_val_mean_acc": best_val_mean_acc,
+            "best_monitor_value": best_monitor_value,
             "latent_dim": latent_dim,
             "num_bins": cfg.num_bins,
             "d_min": cfg.d_min,
             "d_max": cfg.d_max,
             "hidden_dim": cfg.hidden_dim,
+            "adv_train": cfg.adv_train,
+            "adv_eps": cfg.adv_eps,
+            "adv_alpha": cfg.adv_alpha,
+            "adv_steps": cfg.adv_steps,
+            "adv_random_start": cfg.adv_random_start,
+            "adv_beta": cfg.adv_beta,
+            "lambda_clean_dfl": cfg.lambda_clean_dfl,
+            "lambda_clean_ce": cfg.lambda_clean_ce,
+            "lambda_adv_dfl": cfg.lambda_adv_dfl,
+            "lambda_adv_ce": cfg.lambda_adv_ce,
+            "lambda_clean_b30_loss": cfg.lambda_clean_b30_loss,
+            "lambda_adv_b30_loss": cfg.lambda_adv_b30_loss,
+            "early_stop_monitor": cfg.early_stop_monitor,
+            "init_dfl_head": str(init_dfl_head_path) if init_dfl_head_path is not None else None,
             "config": asdict(cfg),
         },
         path,
@@ -406,12 +867,25 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
     epochs = args.epochs
     max_train_batches = args.max_train_batches
     max_val_batches = args.max_val_batches
+    adv_steps = args.adv_steps
+
+    if args.adv_train and not run_tag:
+        run_tag = f"adv_eps{safe_float_label(args.adv_eps)}_beta{safe_float_label(args.adv_beta)}"
 
     if args.smoke_test:
         epochs = 1
         max_train_batches = 2 if max_train_batches is None else min(max_train_batches, 2)
         max_val_batches = 1 if max_val_batches is None else min(max_val_batches, 1)
+        if args.adv_train and adv_steps == 40:
+            adv_steps = 2
         run_tag = "smoke_test" if not run_tag else f"{run_tag}_smoke_test"
+
+    lambda_clean_dfl = (
+        args.lambda_dfl if args.lambda_clean_dfl is None else args.lambda_clean_dfl
+    )
+    lambda_clean_ce = (
+        args.lambda_ce if args.lambda_clean_ce is None else args.lambda_clean_ce
+    )
 
     return TrainConfig(
         model_key=args.model_key,
@@ -437,6 +911,27 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
         hidden_dim=args.hidden_dim,
         lambda_dfl=args.lambda_dfl,
         lambda_ce=args.lambda_ce,
+        adv_train=args.adv_train,
+        adv_eps=args.adv_eps,
+        adv_alpha=args.adv_alpha,
+        adv_steps=adv_steps,
+        adv_random_start=not args.no_adv_random_start,
+        adv_beta=args.adv_beta,
+        lambda_clean_dfl=lambda_clean_dfl,
+        lambda_clean_ce=lambda_clean_ce,
+        lambda_adv_dfl=args.lambda_adv_dfl,
+        lambda_adv_ce=args.lambda_adv_ce,
+        use_b30_clstsep_loss=args.use_b30_clstsep_loss,
+        lambda_clean_b30_loss=args.lambda_clean_b30_loss,
+        lambda_adv_b30_loss=args.lambda_adv_b30_loss,
+        b30_lambda_class=args.b30_lambda_class,
+        b30_lambda_ae=args.b30_lambda_ae,
+        b30_lambda_1=args.b30_lambda_1,
+        b30_lambda_clus=args.b30_lambda_clus,
+        b30_lambda_sep=args.b30_lambda_sep,
+        init_dfl_head=args.init_dfl_head,
+        init_run_tag=args.init_run_tag,
+        early_stop_monitor=args.early_stop_monitor,
         max_train_batches=max_train_batches,
         max_val_batches=max_val_batches,
         run_tag=run_tag,
@@ -467,6 +962,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--lambda-dfl", type=float, default=1.0)
     parser.add_argument("--lambda-ce", type=float, default=0.0)
+    parser.add_argument("--adv-train", action="store_true")
+    parser.add_argument("--adv-eps", type=float, default=0.3)
+    parser.add_argument("--adv-alpha", type=float, default=0.01)
+    parser.add_argument("--adv-steps", type=int, default=40)
+    parser.add_argument("--no-adv-random-start", action="store_true")
+    parser.add_argument("--adv-beta", type=float, default=0.5)
+    parser.add_argument("--lambda-clean-dfl", type=float, default=None)
+    parser.add_argument("--lambda-clean-ce", type=float, default=None)
+    parser.add_argument("--lambda-adv-dfl", type=float, default=1.0)
+    parser.add_argument("--lambda-adv-ce", type=float, default=1.0)
+    parser.add_argument("--use-b30-clstsep-loss", action="store_true")
+    parser.add_argument("--lambda-clean-b30-loss", type=float, default=0.0)
+    parser.add_argument("--lambda-adv-b30-loss", type=float, default=0.0)
+    parser.add_argument("--b30-lambda-class", type=float, default=20.0)
+    parser.add_argument("--b30-lambda-ae", type=float, default=1.0)
+    parser.add_argument("--b30-lambda-1", type=float, default=1.0)
+    parser.add_argument("--b30-lambda-clus", type=float, default=0.8)
+    parser.add_argument("--b30-lambda-sep", type=float, default=0.2)
+    parser.add_argument("--init-dfl-head", default=None)
+    parser.add_argument("--init-run-tag", default=None)
+    parser.add_argument(
+        "--early-stop-monitor",
+        choices=(
+            "val_adv_risk_acc",
+            "val_adv_loss",
+            "val_clean_risk_acc",
+            "val_clean_mu_mae_clamped",
+        ),
+        default="val_adv_risk_acc",
+    )
     parser.add_argument("--max-train-batches", type=int, default=None)
     parser.add_argument("--max-val-batches", type=int, default=None)
     parser.add_argument("--run-tag", default="")
@@ -479,7 +1004,12 @@ def main() -> None:
     cfg = build_config(args)
     set_seed(cfg.seed)
 
-    if cfg.smoke_test:
+    if cfg.smoke_test and cfg.adv_train:
+        print(
+            "Smoke-test adversarial calibration mode enabled: this is not a "
+            "real training run."
+        )
+    elif cfg.smoke_test:
         print("Smoke-test mode enabled: this is not a real training run.")
 
     run_leaf = f"seed={cfg.seed}" if not cfg.run_tag else f"seed={cfg.seed}_{cfg.run_tag}"
@@ -516,9 +1046,17 @@ def main() -> None:
         d_max=cfg.d_max,
         hidden_dim=cfg.hidden_dim,
     ).to(device)
+    init_dfl_head_path = load_initial_dfl_head_if_requested(
+        dfl_layer=dfl_layer,
+        cfg=cfg,
+        latent_dim=latent_dim,
+        device=device,
+    )
+    wrapper_mode = "risk" if cfg.adv_train else "mean"
     wrapper = RiskAwareB30Wrapper(
         base_model=base_model,
-        mode="mean",
+        mode=wrapper_mode,
+        beta=cfg.adv_beta if cfg.adv_train else 0.0,
         dfl_layer=dfl_layer,
     ).to(device)
     wrapper.eval()
@@ -531,6 +1069,12 @@ def main() -> None:
     print(f"Checkpoint:                 {checkpoint_path}")
     print(f"Device:                     {cfg.device}")
     print(f"Run dir:                    {run_dir}")
+    print(f"Adv train:                  {cfg.adv_train}")
+    if cfg.adv_train:
+        print(f"Adv eps / alpha / steps:    {cfg.adv_eps} / {cfg.adv_alpha} / {cfg.adv_steps}")
+        print(f"Adv beta:                   {cfg.adv_beta}")
+        print(f"Early-stop monitor:         {cfg.early_stop_monitor}")
+        print(f"Init DFL head:              {init_dfl_head_path}")
     print(f"Total base parameters:      {base_total_params:,}")
     print(f"Trainable base parameters:  {base_trainable_params:,}")
     print(f"DFL layer parameters:       {dfl_total_params:,}")
@@ -560,6 +1104,7 @@ def main() -> None:
     history: List[Dict[str, Any]] = []
     best_val_mu_mae_clamped = float("inf")
     best_val_mean_acc = 0.0
+    best_monitor_value = -float("inf") if cfg.early_stop_monitor.endswith("_acc") else float("inf")
     best_epoch = -1
     patience_counter = 0
     start_time = time.time()
@@ -568,28 +1113,52 @@ def main() -> None:
     last_ckpt_path = ckpt_dir / "last_dfl_head.pt"
 
     for epoch in range(1, cfg.epochs + 1):
-        train_metrics = run_epoch(
-            wrapper=wrapper,
-            base_model=base_model,
-            dfl_layer=dfl_layer,
-            dfl_loss_fn=dfl_loss_fn,
-            loader=train_loader,
-            cfg=cfg,
-            optimizer=optimizer,
-            max_batches=cfg.max_train_batches,
-            phase=f"train {epoch}/{cfg.epochs}",
-        )
-        val_metrics = run_epoch(
-            wrapper=wrapper,
-            base_model=base_model,
-            dfl_layer=dfl_layer,
-            dfl_loss_fn=dfl_loss_fn,
-            loader=val_loader,
-            cfg=cfg,
-            optimizer=None,
-            max_batches=cfg.max_val_batches,
-            phase=f"val {epoch}/{cfg.epochs}",
-        )
+        if cfg.adv_train:
+            train_metrics = run_epoch_adv(
+                wrapper=wrapper,
+                base_model=base_model,
+                dfl_layer=dfl_layer,
+                dfl_loss_fn=dfl_loss_fn,
+                loader=train_loader,
+                cfg=cfg,
+                optimizer=optimizer,
+                max_batches=cfg.max_train_batches,
+                phase=f"train {epoch}/{cfg.epochs}",
+            )
+            val_metrics = run_epoch_adv(
+                wrapper=wrapper,
+                base_model=base_model,
+                dfl_layer=dfl_layer,
+                dfl_loss_fn=dfl_loss_fn,
+                loader=val_loader,
+                cfg=cfg,
+                optimizer=None,
+                max_batches=cfg.max_val_batches,
+                phase=f"val {epoch}/{cfg.epochs}",
+            )
+        else:
+            train_metrics = run_epoch(
+                wrapper=wrapper,
+                base_model=base_model,
+                dfl_layer=dfl_layer,
+                dfl_loss_fn=dfl_loss_fn,
+                loader=train_loader,
+                cfg=cfg,
+                optimizer=optimizer,
+                max_batches=cfg.max_train_batches,
+                phase=f"train {epoch}/{cfg.epochs}",
+            )
+            val_metrics = run_epoch(
+                wrapper=wrapper,
+                base_model=base_model,
+                dfl_layer=dfl_layer,
+                dfl_loss_fn=dfl_loss_fn,
+                loader=val_loader,
+                cfg=cfg,
+                optimizer=None,
+                max_batches=cfg.max_val_batches,
+                phase=f"val {epoch}/{cfg.epochs}",
+            )
 
         row = {
             "epoch": epoch,
@@ -600,21 +1169,47 @@ def main() -> None:
         save_history_csv(run_dir / "history.csv", history)
         save_json(run_dir / "history.json", {"history": history})
 
-        print(
-            "epoch "
-            f"{epoch:03d} | "
-            f"train_loss={train_metrics['loss']:.5f} "
-            f"train_mae={train_metrics['mu_mae_clamped']:.5f} "
-            f"val_loss={val_metrics['loss']:.5f} "
-            f"val_mae={val_metrics['mu_mae_clamped']:.5f} "
-            f"val_mean_acc={val_metrics['mean_acc']:.4f} "
-            f"val_det_acc={val_metrics['det_acc']:.4f} "
-            f"sat={val_metrics['target_saturation_rate']:.6f}"
-        )
+        if cfg.adv_train:
+            monitor_value = row[cfg.early_stop_monitor]
+            improved = (
+                monitor_value > best_monitor_value
+                if cfg.early_stop_monitor.endswith("_acc")
+                else monitor_value < best_monitor_value
+            )
+            print(
+                "epoch "
+                f"{epoch:03d} | "
+                f"train_clean_loss={train_metrics['clean_loss']:.5f} "
+                f"train_adv_loss={train_metrics['adv_loss']:.5f} "
+                f"val_clean_acc={val_metrics['clean_risk_acc']:.4f} "
+                f"val_adv_acc={val_metrics['adv_risk_acc']:.4f} "
+                f"val_adv_loss={val_metrics['adv_loss']:.5f} "
+                f"monitor={cfg.early_stop_monitor}:{monitor_value:.5f}"
+            )
+        else:
+            monitor_value = val_metrics["mu_mae_clamped"]
+            improved = monitor_value < best_val_mu_mae_clamped
+            print(
+                "epoch "
+                f"{epoch:03d} | "
+                f"train_loss={train_metrics['loss']:.5f} "
+                f"train_mae={train_metrics['mu_mae_clamped']:.5f} "
+                f"val_loss={val_metrics['loss']:.5f} "
+                f"val_mae={val_metrics['mu_mae_clamped']:.5f} "
+                f"val_mean_acc={val_metrics['mean_acc']:.4f} "
+                f"val_det_acc={val_metrics['det_acc']:.4f} "
+                f"sat={val_metrics['target_saturation_rate']:.6f}"
+            )
 
-        if val_metrics["mu_mae_clamped"] < best_val_mu_mae_clamped:
-            best_val_mu_mae_clamped = val_metrics["mu_mae_clamped"]
-            best_val_mean_acc = val_metrics["mean_acc"]
+        if improved:
+            if cfg.adv_train:
+                best_val_mu_mae_clamped = val_metrics["clean_mu_mae_clamped"]
+                best_val_mean_acc = val_metrics["clean_risk_acc"]
+                best_monitor_value = monitor_value
+            else:
+                best_val_mu_mae_clamped = val_metrics["mu_mae_clamped"]
+                best_val_mean_acc = val_metrics["mean_acc"]
+                best_monitor_value = monitor_value
             best_epoch = epoch
             patience_counter = 0
             save_dfl_checkpoint(
@@ -625,8 +1220,10 @@ def main() -> None:
                 epoch=epoch,
                 best_val_mu_mae_clamped=best_val_mu_mae_clamped,
                 best_val_mean_acc=best_val_mean_acc,
+                best_monitor_value=best_monitor_value,
                 latent_dim=latent_dim,
                 checkpoint_path=checkpoint_path,
+                init_dfl_head_path=init_dfl_head_path,
             )
         else:
             patience_counter += 1
@@ -647,8 +1244,10 @@ def main() -> None:
         epoch=epochs_run,
         best_val_mu_mae_clamped=best_val_mu_mae_clamped,
         best_val_mean_acc=best_val_mean_acc,
+        best_monitor_value=best_monitor_value,
         latent_dim=latent_dim,
         checkpoint_path=checkpoint_path,
+        init_dfl_head_path=init_dfl_head_path,
     )
 
     summary = {
@@ -658,6 +1257,10 @@ def main() -> None:
         "best_epoch": best_epoch,
         "best_val_mu_mae_clamped": best_val_mu_mae_clamped,
         "best_val_mean_acc": best_val_mean_acc,
+        "best_monitor_value": best_monitor_value,
+        "early_stop_monitor": cfg.early_stop_monitor,
+        "adv_train": cfg.adv_train,
+        "init_dfl_head": str(init_dfl_head_path) if init_dfl_head_path is not None else None,
         "epochs_run": epochs_run,
         "total_runtime_s": total_runtime_s,
         "base_total_params": base_total_params,
@@ -674,6 +1277,7 @@ def main() -> None:
     print(f"Best epoch: {best_epoch}")
     print(f"Best val_mu_mae_clamped: {best_val_mu_mae_clamped:.6g}")
     print(f"Best val_mean_acc: {best_val_mean_acc:.6g}")
+    print(f"Best monitor value: {best_monitor_value:.6g}")
     print(f"Saved best checkpoint: {best_ckpt_path}")
     print(f"Saved last checkpoint: {last_ckpt_path}")
 
