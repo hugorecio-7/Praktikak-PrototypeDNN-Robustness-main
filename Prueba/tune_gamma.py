@@ -173,9 +173,28 @@ def load_b30_model(model_name: str, device: torch.device) -> CAEModel_Balanced:
     return load_b30_model_from_path(model_path, device)
 
 
-def output_csv_path(model_name: str) -> Path:
+def format_float_for_filename(value: float) -> str:
+    formatted = f"{value:g}".replace(".", "e").replace("-", "m")
+    return formatted
+
+
+def output_csv_path(
+    model_name: str,
+    epsilons: list[float],
+    powers: list[int],
+    use_shifts: list[bool],
+    grey: bool,
+) -> Path:
     safe_model_name = model_name.replace("/", "_").replace("\\", "_")
-    return OUTPUT_DIR / f"gamma_tuning_results_{safe_model_name}.csv"
+    max_epsilon = format_float_for_filename(max(epsilons))
+    max_power = max(powers)
+    shift_tag = "shift" if any(use_shifts) else "noshift"
+    grey_tag = "grey" if grey else "nogrey"
+    filename = (
+        f"gamma_tuning_results_{safe_model_name}_"
+        f"{max_epsilon}_{max_power}_{shift_tag}_{grey_tag}.csv"
+    )
+    return OUTPUT_DIR / filename
 
 
 def build_proto_labels(
@@ -244,12 +263,13 @@ def run_pgd_attack(
     iters: int,
     alpha: float,
     random_start: bool,
+    grey: bool,
 ) -> torch.Tensor:
     if epsilon == 0.0:
         return images
 
     def loss_f(batch_x: torch.Tensor) -> torch.Tensor:
-        logits = wrapper(batch_x)
+        logits = wrapper.base_model(batch_x) if grey else wrapper(batch_x)
         return F.cross_entropy(logits, labels)
 
     attack = repo_pgd_linf_attack or simple_pgd_linf_attack
@@ -268,7 +288,7 @@ def evaluate_batch(
     images: torch.Tensor,
     labels: torch.Tensor,
     proto_labels: torch.Tensor,
-) -> tuple[float, float]:
+) -> tuple[float, float, float]:
     with torch.no_grad():
         logits = wrapper(images)
         predictions = logits.argmax(dim=1)
@@ -284,13 +304,15 @@ def evaluate_batch(
         # Calcular el APMSR verdadero (supresiones sobre el total de fallos latentes)
         false_matches = metric_outputs["false_match_mu"].sum().item()
         suppressions = metric_outputs["suppressed_match"].sum().item()
+        harm_matches = metric_outputs["risk_harm_match"].sum().item()
 
         if false_matches > 0:
             apm_sr = (suppressions / false_matches) * 100.0
         else:
             apm_sr = 0.0
+        harm_rate = (harm_matches / labels.size(0)) * 100.0
 
-    return accuracy, apm_sr
+    return accuracy, apm_sr, harm_rate
 
 
 def main() -> None:
@@ -310,6 +332,11 @@ def main() -> None:
     parser.add_argument("--pgd-iters", type=int, default=80)
     parser.add_argument("--pgd-alpha", type=float, default=0.01)
     parser.add_argument("--no-random-start", action="store_true")
+    parser.add_argument(
+        "--grey",
+        action="store_true",
+        help="Grey-box PGD: attack the original base model instead of the wrapper.",
+    )
     parser.add_argument(
         "--epsilons",
         type=float,
@@ -352,7 +379,8 @@ def main() -> None:
         f"epsilons={args.epsilons} | "
         f"gammas={args.gammas} | "
         f"powers={args.powers} | "
-        f"use_shift={args.use_shift}"
+        f"use_shift={args.use_shift} | "
+        f"grey={args.grey}"
     )
 
     for model_name in args.model:
@@ -381,8 +409,9 @@ def main() -> None:
                             iters=args.pgd_iters,
                             alpha=args.pgd_alpha,
                             random_start=not args.no_random_start,
+                            grey=args.grey,
                         )
-                        accuracy, suppressed_matches = evaluate_batch(
+                        accuracy, suppressed_matches, harm_rate = evaluate_batch(
                             wrapper=wrapper,
                             images=eval_images,
                             labels=labels,
@@ -397,16 +426,24 @@ def main() -> None:
                             "epsilon": epsilon,
                             "accuracy": accuracy,
                             "suppressed_matches": suppressed_matches,
+                            "harm_rate": harm_rate,
                         }
                         rows.append(row)
                         print(
                             f"Model={model_name} | Power={power} | "
                             f"use_shift={use_shift} | Gamma={gamma:.2f} | "
                             f"Epsilon={epsilon:.3f} | Accuracy={accuracy:.4f} | "
-                            f"suppressed_matches={suppressed_matches:.2f}%"
+                            f"suppressed_matches={suppressed_matches:.2f}% | "
+                            f"harm_rate={harm_rate:.2f}%"
                         )
 
-        model_output_csv = output_csv_path(model_name)
+        model_output_csv = output_csv_path(
+            model_name=model_name,
+            epsilons=args.epsilons,
+            powers=args.powers,
+            use_shifts=args.use_shift,
+            grey=args.grey,
+        )
         with model_output_csv.open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.DictWriter(
                 csv_file,
@@ -418,6 +455,7 @@ def main() -> None:
                     "epsilon",
                     "accuracy",
                     "suppressed_matches",
+                    "harm_rate",
                 ],
             )
             writer.writeheader()
