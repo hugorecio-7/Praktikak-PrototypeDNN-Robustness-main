@@ -26,7 +26,7 @@ except Exception:  # pragma: no cover - fallback for minimal test environments.
     repo_pgd_linf_attack = None
 
 
-EPSILONS = [0.0, 0.025, 0.05, 0.75, 0.1]
+EPSILONS = [0.0, 0.025, 0.05, 0.1]
 GAMMA_VALUES = [0.0, 10.0, 100.0, 1000.0]
 POWERS = [2, 3]
 USE_SHIFTS = [False, True]
@@ -86,6 +86,24 @@ def torch_load(path: Path, device: torch.device) -> Any:
         return torch.load(path, map_location=device, weights_only=False)
     except TypeError:
         return torch.load(path, map_location=device)
+
+
+def parse_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"true", "t", "1", "yes", "y", "si", "s"}:
+        return True
+    if normalized in {"false", "f", "0", "no", "n"}:
+        return False
+    raise argparse.ArgumentTypeError(
+        f"Invalid boolean value {value!r}. Use true/false."
+    )
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("Power values must be >= 1.")
+    return parsed
 
 
 def extract_state_dict(checkpoint: Any) -> dict[str, torch.Tensor] | None:
@@ -292,10 +310,50 @@ def main() -> None:
     parser.add_argument("--pgd-iters", type=int, default=80)
     parser.add_argument("--pgd-alpha", type=float, default=0.01)
     parser.add_argument("--no-random-start", action="store_true")
+    parser.add_argument(
+        "--epsilons",
+        type=float,
+        nargs="+",
+        default=EPSILONS,
+        help="Epsilon values to evaluate, e.g. --epsilons 0 0.025 0.05 0.1.",
+    )
+    parser.add_argument(
+        "--gammas",
+        type=float,
+        nargs="+",
+        default=GAMMA_VALUES,
+        help="Gamma values to evaluate, e.g. --gammas 0 10 100 1000.",
+    )
+    parser.add_argument(
+        "--powers",
+        type=positive_int,
+        nargs="+",
+        default=POWERS,
+        help="Structural penalty powers, e.g. --powers 2 3.",
+    )
+    parser.add_argument(
+        "--use-shift",
+        type=parse_bool,
+        nargs="+",
+        default=USE_SHIFTS,
+        help=(
+            "Shift modes to evaluate. Use --use-shift true, "
+            "--use-shift false, or --use-shift false true."
+        ),
+    )
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     images, labels = collect_validation_batch(args.data_dir, args.batch_size, device)
+
+    print(
+        "Sweep config | "
+        f"models={args.model} | "
+        f"epsilons={args.epsilons} | "
+        f"gammas={args.gammas} | "
+        f"powers={args.powers} | "
+        f"use_shift={args.use_shift}"
+    )
 
     for model_name in args.model:
         base_model = load_b30_model(model_name, device)
@@ -304,9 +362,9 @@ def main() -> None:
         print(f"Loaded model {model_name} from {resolve_model_path(model_name)}")
 
         rows = []
-        for use_shift in USE_SHIFTS:
-            for power in POWERS:
-                for gamma in GAMMA_VALUES:
+        for use_shift in args.use_shift:
+            for power in args.powers:
+                for gamma in args.gammas:
                     wrapper = ReconstructionRiskWrapper(
                         base_model,
                         gamma=gamma,
@@ -314,7 +372,7 @@ def main() -> None:
                         use_shift=use_shift,
                     ).to(device).eval()
 
-                    for epsilon in EPSILONS:
+                    for epsilon in args.epsilons:
                         eval_images = run_pgd_attack(
                             wrapper=wrapper,
                             images=images,
