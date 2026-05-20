@@ -7,4 +7,5 @@ torchvision==0.17.0
 tqdm==4.65.0
 scikit-learn
 foolbox
+torchmetrics
 git+https://github.com/fra31/auto-attack.git
