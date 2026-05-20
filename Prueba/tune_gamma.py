@@ -26,7 +26,6 @@ except Exception:  # pragma: no cover - fallback for minimal test environments.
     repo_pgd_linf_attack = None
 
 
-MODEL_NAME = "B30"
 EPSILONS = [0.0, 0.025, 0.05, 0.75, 0.1]
 GAMMA_VALUES = [0.0, 10.0, 100.0, 1000.0]
 POWERS = [2, 3]
@@ -156,8 +155,8 @@ def load_b30_model(model_name: str, device: torch.device) -> CAEModel_Balanced:
     return load_b30_model_from_path(model_path, device)
 
 
-def output_csv_path() -> Path:
-    safe_model_name = MODEL_NAME.replace("/", "_").replace("\\", "_")
+def output_csv_path(model_name: str) -> Path:
+    safe_model_name = model_name.replace("/", "_").replace("\\", "_")
     return OUTPUT_DIR / f"gamma_tuning_results_{safe_model_name}.csv"
 
 
@@ -280,6 +279,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Tune gamma for the Reconstruction-Risk Shield on B30."
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        nargs="+",
+        default=["B30"],
+        choices=sorted(B30_MODEL_PATHS),
+        help="One or more B30 model names from the local path registry.",
+    )
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--batch-size", type=int, default=250)
     parser.add_argument("--pgd-iters", type=int, default=80)
@@ -290,74 +297,75 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     images, labels = collect_validation_batch(args.data_dir, args.batch_size, device)
 
-    base_model = load_b30_model(MODEL_NAME, device)
-    proto_labels = build_proto_labels(base_model, device)
+    for model_name in args.model:
+        base_model = load_b30_model(model_name, device)
+        proto_labels = build_proto_labels(base_model, device)
 
-    print(f"Loaded model {MODEL_NAME} from {resolve_model_path(MODEL_NAME)}")
+        print(f"Loaded model {model_name} from {resolve_model_path(model_name)}")
 
-    rows = []
-    for use_shift in USE_SHIFTS:
-        for power in POWERS:
-            for gamma in GAMMA_VALUES:
-                wrapper = ReconstructionRiskWrapper(
-                    base_model,
-                    gamma=gamma,
-                    power=power,
-                    use_shift=use_shift,
-                ).to(device).eval()
+        rows = []
+        for use_shift in USE_SHIFTS:
+            for power in POWERS:
+                for gamma in GAMMA_VALUES:
+                    wrapper = ReconstructionRiskWrapper(
+                        base_model,
+                        gamma=gamma,
+                        power=power,
+                        use_shift=use_shift,
+                    ).to(device).eval()
 
-                for epsilon in EPSILONS:
-                    eval_images = run_pgd_attack(
-                        wrapper=wrapper,
-                        images=images,
-                        labels=labels,
-                        epsilon=epsilon,
-                        iters=args.pgd_iters,
-                        alpha=args.pgd_alpha,
-                        random_start=not args.no_random_start,
-                    )
-                    accuracy, suppressed_matches = evaluate_batch(
-                        wrapper=wrapper,
-                        images=eval_images,
-                        labels=labels,
-                        proto_labels=proto_labels,
-                    )
+                    for epsilon in EPSILONS:
+                        eval_images = run_pgd_attack(
+                            wrapper=wrapper,
+                            images=images,
+                            labels=labels,
+                            epsilon=epsilon,
+                            iters=args.pgd_iters,
+                            alpha=args.pgd_alpha,
+                            random_start=not args.no_random_start,
+                        )
+                        accuracy, suppressed_matches = evaluate_batch(
+                            wrapper=wrapper,
+                            images=eval_images,
+                            labels=labels,
+                            proto_labels=proto_labels,
+                        )
 
-                    row = {
-                        "model": MODEL_NAME,
-                        "power": power,
-                        "use_shift": use_shift,
-                        "gamma": gamma,
-                        "epsilon": epsilon,
-                        "accuracy": accuracy,
-                        "suppressed_matches": suppressed_matches,
-                    }
-                    rows.append(row)
-                    print(
-                        f"Model={MODEL_NAME} | Power={power} | "
-                        f"use_shift={use_shift} | Gamma={gamma:.2f} | "
-                        f"Epsilon={epsilon:.3f} | Accuracy={accuracy:.4f} | "
-                        f"suppressed_matches={suppressed_matches:.2f}%"
-                    )
+                        row = {
+                            "model": model_name,
+                            "power": power,
+                            "use_shift": use_shift,
+                            "gamma": gamma,
+                            "epsilon": epsilon,
+                            "accuracy": accuracy,
+                            "suppressed_matches": suppressed_matches,
+                        }
+                        rows.append(row)
+                        print(
+                            f"Model={model_name} | Power={power} | "
+                            f"use_shift={use_shift} | Gamma={gamma:.2f} | "
+                            f"Epsilon={epsilon:.3f} | Accuracy={accuracy:.4f} | "
+                            f"suppressed_matches={suppressed_matches:.2f}%"
+                        )
 
-    model_output_csv = output_csv_path()
-    with model_output_csv.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(
-            csv_file,
-            fieldnames=[
-                "model",
-                "power",
-                "use_shift",
-                "gamma",
-                "epsilon",
-                "accuracy",
-                "suppressed_matches",
-            ],
-        )
-        writer.writeheader()
-        writer.writerows(rows)
+        model_output_csv = output_csv_path(model_name)
+        with model_output_csv.open("w", newline="", encoding="utf-8") as csv_file:
+            writer = csv.DictWriter(
+                csv_file,
+                fieldnames=[
+                    "model",
+                    "power",
+                    "use_shift",
+                    "gamma",
+                    "epsilon",
+                    "accuracy",
+                    "suppressed_matches",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(rows)
 
-    print(f"Results for {MODEL_NAME} saved to {model_output_csv}")
+        print(f"Results for {model_name} saved to {model_output_csv}")
 
 
 if __name__ == "__main__":
