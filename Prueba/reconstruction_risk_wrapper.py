@@ -5,14 +5,45 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-try:
-    from torchmetrics.functional.image import structural_similarity_index_measure
-except ImportError as exc:  # pragma: no cover - import guard for local setups.
-    raise ImportError(
-        "ReconstructionRiskWrapper requires torchmetrics. Install it with "
-        "`pip install torchmetrics` before using this wrapper."
-    ) from exc
+# try:
+#     from torchmetrics.functional.image import structural_similarity_index_measure
+# except ImportError as exc:  # pragma: no cover - import guard for local setups.
+#     raise ImportError(
+#         "ReconstructionRiskWrapper requires torchmetrics. Install it with "
+#         "`pip install torchmetrics` before using this wrapper."
+#     ) from exc
 
+import torch.nn.functional as F
+
+
+def fast_ssim(x: torch.Tensor, y: torch.Tensor, window_size: int = 5) -> torch.Tensor:
+    """
+    SSIM ultrarrápido nativo de PyTorch optimizado para bucles PGD.
+    Usa avg_pool2d en lugar de filtros Gaussianos pesados.
+    """
+    C1 = (0.01 * 1.0) ** 2
+    C2 = (0.03 * 1.0) ** 2
+    pad = window_size // 2
+
+    # Cálculos de media (Average Pooling ultrarrápido)
+    mu1 = F.avg_pool2d(x, window_size, stride=1, padding=pad)
+    mu2 = F.avg_pool2d(y, window_size, stride=1, padding=pad)
+
+    mu1_sq = mu1.pow(2)
+    mu2_sq = mu2.pow(2)
+    mu1_mu2 = mu1 * mu2
+
+    # Cálculos de varianza y covarianza (ReLU por estabilidad numérica)
+    sigma1_sq = F.relu(F.avg_pool2d(x * x, window_size, stride=1, padding=pad) - mu1_sq)
+    sigma2_sq = F.relu(F.avg_pool2d(y * y, window_size, stride=1, padding=pad) - mu2_sq)
+    sigma12 = F.avg_pool2d(x * y, window_size, stride=1, padding=pad) - mu1_mu2
+
+    # Fórmula SSIM
+    num = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2)
+    den = (mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2)
+    
+    # Devolver la media espacial por cada imagen del batch
+    return (num / den).mean(dim=[1, 2, 3])
 
 class ReconstructionRiskWrapper(nn.Module):
     """Add a structural reconstruction penalty to B30 prototype distances.
@@ -118,12 +149,9 @@ class ReconstructionRiskWrapper(nn.Module):
             .expand(batch_size, n_prototypes, *x.shape[1:])
             .reshape(batch_size * n_prototypes, *x.shape[1:])
         )
-        ssim_values = structural_similarity_index_measure(
-            x_pairs,
-            prototype_pairs,
-            data_range=1.0,
-            reduction="none",
-        )
+        
+        ssim_values = fast_ssim(x_pairs, prototype_pairs)
+        
         return ssim_values.view(batch_size, n_prototypes)
 
     def _pairwise_ssim(self, x: torch.Tensor) -> torch.Tensor:
