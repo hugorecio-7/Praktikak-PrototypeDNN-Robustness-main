@@ -58,11 +58,7 @@ class ReconstructionRiskWrapper(nn.Module):
         if self.power < 1:
             raise ValueError(f"power must be >= 1, got {self.power}.")
 
-        # The shield is an inference wrapper. Freezing parameters keeps PGD
-        # gradients focused on the input while preserving differentiability.
         self.base_model.eval()
-        for param in self.base_model.parameters():
-            param.requires_grad_(False)
 
         proto_vectors = self.base_model.prototype_layer.prototype_distances.detach()
         device = proto_vectors.device
@@ -93,6 +89,22 @@ class ReconstructionRiskWrapper(nn.Module):
     @property
     def n_prototypes(self) -> int:
         return int(self.prototype_reconstructions.shape[0])
+
+    @property
+    def feature_vectors(self):
+        return self.base_model.feature_vectors
+
+    @property
+    def prototype_layer(self):
+        return self.base_model.prototype_layer
+
+    @property
+    def decoder(self):
+        return self.base_model.decoder
+
+    @property
+    def fc(self):
+        return self.base_model.fc
 
     def _pairwise_ssim_for_shifted_x(
         self,
