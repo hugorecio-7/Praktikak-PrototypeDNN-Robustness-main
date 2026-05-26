@@ -24,6 +24,8 @@ from pathlib import Path
 
 import matplotlib
 
+from foolbox.utils import accuracy
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -153,7 +155,10 @@ def plot_accuracy_sweep(
     ax.set_xlabel(r"Perturbation $\varepsilon$")
     ax.set_ylabel("Accuracy")
     ax.set_ylim(-0.02, 1.02)
-    ax.set_title(f"Adversarial accuracy - {arch} selected models ({attack})")
+    if attack in ("PGDLInf_attack", "PGD"):
+        ax.set_title(f"Adversarial accuracy - {arch} models (PGD $L_\\infty$)")
+    else:
+        ax.set_title(f"Adversarial accuracy - {arch} models ({attack})")
     ax.legend(loc="upper right", framealpha=0.9)
     plt.tight_layout()
 
@@ -237,7 +242,10 @@ def plot_internal_metric_sweep(
         row, col = divmod(ax_idx, ncols)
         axes[row][col].set_visible(False)
 
-    fig.suptitle(f"Internal metric curves - {arch} selected models ({attack})", fontsize=13)
+    if attack in ("PGDLInf_attack", "PGD"):
+        fig.suptitle(f"Internal metric curves - {arch} models (PGD $L_\\infty$)", fontsize=13)
+    else:
+        fig.suptitle(f"Internal metric curves - {arch} models ({attack})", fontsize=13)
     plt.tight_layout()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)

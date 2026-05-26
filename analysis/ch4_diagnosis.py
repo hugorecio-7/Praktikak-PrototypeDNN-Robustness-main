@@ -69,6 +69,17 @@ def _save(fig: plt.Figure, name: str, out_dir: str) -> None:
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved → {path}")
+    
+def _format_epsilon_axis(ax: plt.Axes, eps: np.ndarray) -> None:
+    """Force epsilon ticks to be 0.0, 0.1, ..., eps_max."""
+    eps_min = float(np.nanmin(eps))
+    eps_max = float(np.nanmax(eps))
+
+    ticks = np.round(np.arange(eps_min, eps_max + 1e-9, 0.1), 1)
+
+    ax.set_xlim(eps_min, eps_max)
+    ax.set_xticks(ticks)
+    ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
 
 
 # =============================================================================
@@ -132,6 +143,61 @@ def plot_degradation_panels(
     )
     plt.tight_layout()
     _save(fig, "ch4_degradation_panels.pdf", out_dir)
+    
+def plot_degradation_panels_separate(
+    data_json: dict,
+    model_name: str,
+    out_dir: str,
+) -> None:
+    """
+    Same content as Figure 1, but saved as three independent figures.
+    Useful for LaTeX subfigure/subcaption layouts.
+    """
+    eps = np.array(data_json["eps"])
+
+    m_proto = get_mean_metric_curve(data_json, "m_proto")
+    m_pred  = get_mean_metric_curve(data_json, "m_pred")
+    R_enc   = get_mean_metric_curve(data_json, "R_enc")
+    R_dec   = get_mean_metric_curve(data_json, "R_dec")
+
+    # --- Panel A: Semantic ---
+    fig, ax = plt.subplots(figsize=(4.3, 3.6))
+    ax.axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
+    ax.plot(eps, m_proto, color="#d62728", linewidth=2.0, label=r"$\tilde{m}_{proto}$")
+    ax.plot(eps, m_pred,  color="#1f77b4", linewidth=2.0, label=r"$\tilde{m}_{pred}$")
+    _format_epsilon_axis(ax, eps)
+    ax.set_ylim(-1.05, 1.05)
+    ax.set_xlabel(r"Perturbation $\varepsilon$")
+    ax.set_ylabel("Margin")
+    ax.set_title("A — Semantic Margins")
+    ax.legend()
+    ax.axvline(EPS_REF, color="gray", linewidth=0.8, linestyle=":", alpha=0.7)
+    plt.tight_layout()
+    _save(fig, "ch4_degradation_panel_A_semantic.pdf", out_dir)
+
+    # --- Panel B: Latent drift ---
+    fig, ax = plt.subplots(figsize=(4.3, 3.6))
+    ax.plot(eps, R_enc, color="#ff7f0e", linewidth=2.0)
+    _format_epsilon_axis(ax, eps)
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel(r"Perturbation $\varepsilon$")
+    ax.set_ylabel(r"$R_{enc}$ (relative drift)")
+    ax.set_title("B — Latent Drift")
+    ax.axvline(EPS_REF, color="gray", linewidth=0.8, linestyle=":", alpha=0.7)
+    plt.tight_layout()
+    _save(fig, "ch4_degradation_panel_B_latent.pdf", out_dir)
+
+    # --- Panel C: Visual drift ---
+    fig, ax = plt.subplots(figsize=(4.3, 3.6))
+    ax.plot(eps, R_dec, color="#2ca02c", linewidth=2.0)
+    _format_epsilon_axis(ax, eps)
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel(r"Perturbation $\varepsilon$")
+    ax.set_ylabel(r"$R_{dec}$ (L$_2$ error, $[0,1]$ space)")
+    ax.set_title("C — Visual Drift")
+    ax.axvline(EPS_REF, color="gray", linewidth=0.8, linestyle=":", alpha=0.7)
+    plt.tight_layout()
+    _save(fig, "ch4_degradation_panel_C_visual.pdf", out_dir)
 
 
 # =============================================================================
@@ -195,17 +261,17 @@ def plot_rpgd_histogram(
 
     ax.axvline(
         mean_all, color="#d62728", linewidth=2.0, linestyle="--",
-        label=rf"$E[r_{{PGD}}^-]$ = {_fmt_eps(mean_all)}",
+        label=rf"$\overline{{r}}_{{\mathrm{{PGD}}}}$ = {_fmt_eps(mean_all)}",
     )
     if not np.isnan(min_all):
         ax.axvline(
             min_all, color="#222222", linewidth=1.6, linestyle=":",
-            label=rf"$\min(r_{{PGD}}^-)$ = {_fmt_eps(min_all)}",
+            label=rf"$\min(r_{{\mathrm{{PGD}}}})$ = {_fmt_eps(min_all)}",
         )
-    ax.set_xlabel(r"$r_{PGD}^-$ (lower robustness bound per sample)")
+    ax.set_xlabel(r"$r_{\mathrm{PGD}}$ (lower robustness bound per sample)")
     ax.set_ylabel("Sample count")
     ax.set_title(
-        rf"Distribution of $r_{{PGD}}^-$ — {model_name}"
+        rf"Distribution of $r_{{\mathrm{{PGD}}}}$ — {model_name}"
     )
     ax.legend()
     plt.tight_layout()
@@ -264,6 +330,9 @@ def main() -> None:
 
     print("Generating Figure 1 — degradation panels …")
     plot_degradation_panels(data_json, args.model, out_dir)
+    
+    print("Generating Figure 1b — separate degradation panels …")
+    plot_degradation_panels_separate(data_json, args.model, out_dir)
 
     print("Generating Figure 2 — r_PGD- histogram …")
     plot_rpgd_histogram(data_json, args.model, out_dir, data_rpgd)

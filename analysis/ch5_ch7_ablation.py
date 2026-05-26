@@ -11,6 +11,7 @@ For --arch B30 | ProtoVAE | SENN
   Figure 2  ({arch}_metric_curves.pdf)
       Mean metric curves vs epsilon for the key metrics of the architecture,
       one subplot per metric, one line per variant.
+      If --metrics is passed, also saves one separate PDF per metric.
   Table     ({arch}_ablation_table.csv  +  {arch}_ablation_table.tex)
       Master ablation table with, per variant:
         - Frozen component
@@ -49,7 +50,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from config import (
-    RC_PARAMS, FIGURES_ROOT, VARIANTS, VARIANT_LABELS, VARIANT_COLORS,
+    RC_PARAMS, FIGURES_ROOT, VARIANTS, VARIANT_LABELS, VARIANT_COLORS, METRIC_LABELS,
     ARCH_COLORS, FREEZE_DESCRIPTION, METRICS_BY_ARCH,
     EPS_GRID, EPS_REF, DEFAULT_SEED, DEFAULT_RUN_ID,
 )
@@ -105,6 +106,13 @@ def _arch_of(model_name: str) -> str:
     if model_name.startswith("SENN"):
         return "SENN"
     return "B30"
+
+
+def _plot_data_with_optional_ft_em(all_data: dict[str, dict], include_ft_em: bool) -> dict[str, dict]:
+    """Return the subset of models that should appear in plots."""
+    if include_ft_em:
+        return all_data
+    return {name: data for name, data in all_data.items() if name != "B30-FT-E-M"}
 
 
 # =============================================================================
@@ -204,6 +212,66 @@ def plot_metric_curves(
     fig.suptitle(f"Internal metric curves — {arch} ablation", fontsize=13)
     plt.tight_layout()
     _save(fig, f"{arch}_metric_curves.pdf", out_dir)
+
+
+def plot_metric_curves_separate(
+    all_data: dict[str, dict],
+    arch: str,
+    out_dir: str,
+) -> None:
+    """
+    Save one figure per metric, keeping the same styling as the combined plot.
+    """
+    for metric in METRICS_BY_ARCH[arch]:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+        plotted_any = False
+        for model_name, data in all_data.items():
+            try:
+                curve = get_mean_metric_curve(data["json"], metric)
+            except KeyError:
+                continue
+
+            eps = np.array(data["json"]["eps"])
+            label = VARIANT_LABELS.get(model_name, model_name)
+            color = VARIANT_COLORS.get(model_name, "#888888")
+            is_base = label == "Base"
+
+            ax.plot(
+                eps,
+                curve,
+                color=color,
+                linewidth=2.0 if not is_base else 1.4,
+                linestyle="--" if is_base else "-",
+                label=label,
+            )
+            plotted_any = True
+
+        if metric in ("m_proto", "m_pred"):
+            ax.axhline(0, color="black", linewidth=0.7, linestyle="--", alpha=0.4)
+            ax.set_ylim(-1.05, 1.05)
+        elif metric.startswith("R_"):
+            ax.set_ylim(bottom=0)
+
+        ax.axvline(EPS_REF, color="gray", linewidth=0.7, linestyle=":", alpha=0.6)
+        ax.set_xlabel(r"$\varepsilon$")
+        ax.set_ylabel(METRIC_LABELS.get(metric, metric))
+        ax.set_title(f"{METRIC_LABELS.get(metric, metric)} — {arch} ablation")
+
+        if plotted_any:
+            ax.legend(fontsize=7, framealpha=0.85)
+        else:
+            ax.text(
+                0.5,
+                0.5,
+                "Metric not available",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+
+        plt.tight_layout()
+        _save(fig, f"{arch}_{metric}_curve.pdf", out_dir)
 
 
 def _metric_title(metric: str) -> str:
@@ -433,6 +501,16 @@ def main() -> None:
     parser.add_argument("--attack", type=str, default="PGDLInf_attack")
     parser.add_argument("--seed",   type=int, default=DEFAULT_SEED)
     parser.add_argument("--run_id", type=str, default=DEFAULT_RUN_ID)
+    parser.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Also save one separate PDF per internal metric, in addition to the combined metric figure.",
+    )
+    parser.add_argument(
+        "--ft-em",
+        action="store_true",
+        help="Include FT-E-M in plots. Tables always include it when available.",
+    )
     args = parser.parse_args()
 
     _apply_style()
@@ -454,13 +532,19 @@ def main() -> None:
         arch_data = load_all_variants(arch, args.attack, args.seed, args.run_id)
         all_arch_data[arch] = arch_data
 
+        plot_data = _plot_data_with_optional_ft_em(arch_data, args.ft_em)
+
         if args.arch != "ALL":
             # Per-architecture figures and table
             print("  Generating accuracy curves …")
-            plot_accuracy_curves(arch_data, arch, out_dir)
+            plot_accuracy_curves(plot_data, arch, out_dir)
 
             print("  Generating metric curves …")
-            plot_metric_curves(arch_data, arch, out_dir)
+            plot_metric_curves(plot_data, arch, out_dir)
+
+            if args.metrics:
+                print("  Generating separate metric curves …")
+                plot_metric_curves_separate(plot_data, arch, out_dir)
 
             print("  Building ablation table …")
             df = build_ablation_table(arch_data, arch, base_names[arch])
