@@ -272,7 +272,7 @@ def load_models(model_names, shield_pgd_mode: str = "white-box"):
             print(
                 f"Model {name} loaded with Shield "
                 f"(gamma={cfg['gamma']}, power={cfg['power']}, "
-                f"PGD={shield_pgd_mode})"
+                f"attack_mode={shield_pgd_mode})"
             )
         else:
             attack_model = model
@@ -321,10 +321,11 @@ def main():
     parser.add_argument("--shield_pgd_mode", type=str, default="white-box",
                         choices=["white-box", "grey-box"],
                         help=(
-                            "PGD mode for Shield models. white-box attacks the "
-                            "Shield wrapper; grey-box attacks the matching "
-                            "non-Shield model, e.g. B30-FT-E-M for "
-                            "B30-FT-E-M-Shield, and evaluates with Shield."
+                            "Attack mode for Shield models in PGDLInf_attack "
+                            "and AutoAttack_adv. white-box attacks the Shield "
+                            "wrapper; grey-box attacks the matching non-Shield "
+                            "model, e.g. B30-FT-E-M for B30-FT-E-M-Shield, "
+                            "and evaluates with Shield."
                         ))
 
     args = parser.parse_args()

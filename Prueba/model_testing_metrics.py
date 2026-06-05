@@ -583,7 +583,8 @@ def adversarial_metrics_eps_collect(
         matching non-Shield B30 model here, e.g. B30-FT-E-M for
         B30-FT-E-M-Shield, while still evaluating the Shield wrapper.
     shield_pgd_mode : str
-        Logged PGD mode for Shield models ("white-box" or "grey-box").
+        Logged attack mode for Shield PGD/AutoAttack models ("white-box" or
+        "grey-box").
     bootstrap_B : int
         Bootstrap resamples for accuracy confidence intervals.
     bootstrap_alpha : float
@@ -728,7 +729,8 @@ def adversarial_metrics_eps_collect(
 
                     # Generate adversarial example — identical branching to original.
                     if foolbox_use:
-                        x_adv = attack(batch_x, batch_y, model=model, epsilon=eps)
+                        attack_model = attack_models[idm] if attack_name == "AutoAttack_adv" else model
+                        x_adv = attack(batch_x, batch_y, model=attack_model, epsilon=eps)
                     else:
                         if attack_name == "PatchPGD_attack":
                             adv_attack = partial(attack, loss_f=loss_f, eps=eps, batch_idx=batch_idx)
@@ -968,8 +970,9 @@ def adversarial_metrics_eps_collect(
             params = {}
             if attack_params_map is not None:
                 params = attack_params_map.get(attack_name, {}).copy()
-            if is_shield and attack_name == "PGDLInf_attack":
+            if is_shield and attack_name in {"PGDLInf_attack", "AutoAttack_adv"}:
                 params["shield_pgd_mode"] = shield_pgd_mode
+                params["shield_attack_mode"] = shield_pgd_mode
 
             shield_config = None
             if is_shield:
@@ -978,6 +981,7 @@ def adversarial_metrics_eps_collect(
                     "gamma": float(models[idm].gamma),
                     "power": int(models[idm].power),
                     "pgd_mode": shield_pgd_mode,
+                    "attack_mode": shield_pgd_mode,
                     "distance_formula": (
                         "d_final(x,p_j) = d_latent(x,p_j) + gamma * "
                         "(1 - SSIM(x, Dec(p_j))) ** power"
