@@ -58,7 +58,6 @@ class ReconstructionRiskWrapper(nn.Module):
         base_model: nn.Module,
         gamma: float = 1.0,
         power: int = 1,
-        use_shift: bool = False,
     ) -> None:
         super().__init__()
 
@@ -83,7 +82,6 @@ class ReconstructionRiskWrapper(nn.Module):
         self.base_model = base_model
         self.gamma = float(gamma)
         self.power = int(power)
-        self.use_shift = bool(use_shift)
         self.in_channels_prototype = base_model.in_channels_prototype
 
         if self.power < 1:
@@ -137,7 +135,7 @@ class ReconstructionRiskWrapper(nn.Module):
     def fc(self):
         return self.base_model.fc
 
-    def _pairwise_ssim_for_shifted_x(
+    def _pairwise_ssim_for_pairs(
         self,
         x: torch.Tensor,
         prototype_pairs: torch.Tensor,
@@ -174,24 +172,7 @@ class ReconstructionRiskWrapper(nn.Module):
             .reshape(batch_size * n_prototypes, *prototypes.shape[1:])
         )
 
-        if not self.use_shift:
-            return self._pairwise_ssim_for_shifted_x(x, prototype_pairs)
-
-        shifts = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)]
-        best_ssim = None
-        for dx, dy in shifts:
-            shifted_x = torch.roll(x, shifts=(dx, dy), dims=(2, 3))
-            ssim_values = self._pairwise_ssim_for_shifted_x(
-                shifted_x,
-                prototype_pairs,
-            )
-            best_ssim = (
-                ssim_values
-                if best_ssim is None
-                else torch.maximum(best_ssim, ssim_values)
-            )
-
-        return best_ssim
+        return self._pairwise_ssim_for_pairs(x, prototype_pairs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         encoder_out = self.base_model.encoder(x)

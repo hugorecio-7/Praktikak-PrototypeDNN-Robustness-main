@@ -29,7 +29,6 @@ except Exception:  # pragma: no cover - fallback for minimal test environments.
 EPSILONS = [0.0, 0.025, 0.05, 0.1]
 GAMMA_VALUES = [0.0, 10.0, 100.0, 1000.0]
 POWERS = [2, 3]
-USE_SHIFTS = [False, True]
 OUTPUT_DIR = Path(__file__).resolve().parent
 
 B30_MODEL_PATHS = {
@@ -86,17 +85,6 @@ def torch_load(path: Path, device: torch.device) -> Any:
         return torch.load(path, map_location=device, weights_only=False)
     except TypeError:
         return torch.load(path, map_location=device)
-
-
-def parse_bool(value: str) -> bool:
-    normalized = value.strip().lower()
-    if normalized in {"true", "t", "1", "yes", "y", "si", "s"}:
-        return True
-    if normalized in {"false", "f", "0", "no", "n"}:
-        return False
-    raise argparse.ArgumentTypeError(
-        f"Invalid boolean value {value!r}. Use true/false."
-    )
 
 
 def positive_int(value: str) -> int:
@@ -182,17 +170,15 @@ def output_csv_path(
     model_name: str,
     epsilons: list[float],
     powers: list[int],
-    use_shifts: list[bool],
     grey: bool,
 ) -> Path:
     safe_model_name = model_name.replace("/", "_").replace("\\", "_")
     max_epsilon = format_float_for_filename(max(epsilons))
     max_power = max(powers)
-    shift_tag = "shift" if any(use_shifts) else "noshift"
     grey_tag = "grey" if grey else "nogrey"
     filename = (
         f"gamma_tuning_results_{safe_model_name}_"
-        f"{max_epsilon}_{max_power}_{shift_tag}_{grey_tag}.csv"
+        f"{max_epsilon}_{max_power}_{grey_tag}.csv"
     )
     return OUTPUT_DIR / filename
 
@@ -335,7 +321,7 @@ def main() -> None:
     parser.add_argument(
         "--grey",
         action="store_true",
-        help="Grey-box PGD: attack the original base model instead of the wrapper.",
+        help="Grey-box PGD: attack the matching non-Shield model instead of the wrapper.",
     )
     parser.add_argument(
         "--epsilons",
@@ -358,16 +344,6 @@ def main() -> None:
         default=POWERS,
         help="Structural penalty powers, e.g. --powers 2 3.",
     )
-    parser.add_argument(
-        "--use-shift",
-        type=parse_bool,
-        nargs="+",
-        default=USE_SHIFTS,
-        help=(
-            "Shift modes to evaluate. Use --use-shift true, "
-            "--use-shift false, or --use-shift false true."
-        ),
-    )
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -379,7 +355,6 @@ def main() -> None:
         f"epsilons={args.epsilons} | "
         f"gammas={args.gammas} | "
         f"powers={args.powers} | "
-        f"use_shift={args.use_shift} | "
         f"grey={args.grey}"
     )
 
@@ -390,58 +365,54 @@ def main() -> None:
         print(f"Loaded model {model_name} from {resolve_model_path(model_name)}")
 
         rows = []
-        for use_shift in args.use_shift:
-            for power in args.powers:
-                for gamma in args.gammas:
-                    wrapper = ReconstructionRiskWrapper(
-                        base_model,
-                        gamma=gamma,
-                        power=power,
-                        use_shift=use_shift,
-                    ).to(device).eval()
+        for power in args.powers:
+            for gamma in args.gammas:
+                wrapper = ReconstructionRiskWrapper(
+                    base_model,
+                    gamma=gamma,
+                    power=power,
+                ).to(device).eval()
 
-                    for epsilon in args.epsilons:
-                        eval_images = run_pgd_attack(
-                            wrapper=wrapper,
-                            images=images,
-                            labels=labels,
-                            epsilon=epsilon,
-                            iters=args.pgd_iters,
-                            alpha=args.pgd_alpha,
-                            random_start=not args.no_random_start,
-                            grey=args.grey,
-                        )
-                        accuracy, suppressed_matches, harm_rate = evaluate_batch(
-                            wrapper=wrapper,
-                            images=eval_images,
-                            labels=labels,
-                            proto_labels=proto_labels,
-                        )
+                for epsilon in args.epsilons:
+                    eval_images = run_pgd_attack(
+                        wrapper=wrapper,
+                        images=images,
+                        labels=labels,
+                        epsilon=epsilon,
+                        iters=args.pgd_iters,
+                        alpha=args.pgd_alpha,
+                        random_start=not args.no_random_start,
+                        grey=args.grey,
+                    )
+                    accuracy, suppressed_matches, harm_rate = evaluate_batch(
+                        wrapper=wrapper,
+                        images=eval_images,
+                        labels=labels,
+                        proto_labels=proto_labels,
+                    )
 
-                        row = {
-                            "model": model_name,
-                            "power": power,
-                            "use_shift": use_shift,
-                            "gamma": gamma,
-                            "epsilon": epsilon,
-                            "accuracy": accuracy,
-                            "suppressed_matches": suppressed_matches,
-                            "harm_rate": harm_rate,
-                        }
-                        rows.append(row)
-                        print(
-                            f"Model={model_name} | Power={power} | "
-                            f"use_shift={use_shift} | Gamma={gamma:.2f} | "
-                            f"Epsilon={epsilon:.3f} | Accuracy={accuracy:.4f} | "
-                            f"suppressed_matches={suppressed_matches:.2f}% | "
-                            f"harm_rate={harm_rate:.2f}%"
-                        )
+                    row = {
+                        "model": model_name,
+                        "power": power,
+                        "gamma": gamma,
+                        "epsilon": epsilon,
+                        "accuracy": accuracy,
+                        "suppressed_matches": suppressed_matches,
+                        "harm_rate": harm_rate,
+                    }
+                    rows.append(row)
+                    print(
+                        f"Model={model_name} | Power={power} | "
+                        f"Gamma={gamma:.2f} | "
+                        f"Epsilon={epsilon:.3f} | Accuracy={accuracy:.4f} | "
+                        f"suppressed_matches={suppressed_matches:.2f}% | "
+                        f"harm_rate={harm_rate:.2f}%"
+                    )
 
         model_output_csv = output_csv_path(
             model_name=model_name,
             epsilons=args.epsilons,
             powers=args.powers,
-            use_shifts=args.use_shift,
             grey=args.grey,
         )
         with model_output_csv.open("w", newline="", encoding="utf-8") as csv_file:
@@ -450,7 +421,6 @@ def main() -> None:
                 fieldnames=[
                     "model",
                     "power",
-                    "use_shift",
                     "gamma",
                     "epsilon",
                     "accuracy",
