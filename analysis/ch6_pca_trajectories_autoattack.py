@@ -41,6 +41,9 @@ Usage
     # Default: Base vs FT-0
     python ch6_pca_trajectories_autoattack.py
 
+    # Also run AutoAttack endpoint validation
+    python ch6_pca_trajectories_autoattack.py --autoattack
+
     # Custom pair
     python ch6_pca_trajectories_autoattack.py --model_a B30 --model_b B30-FT-E
 
@@ -356,8 +359,8 @@ def _centre_and_project(pca: PCA, z: np.ndarray, z_ref: np.ndarray) -> np.ndarra
 def plot_trajectory_panel(
     ax:            plt.Axes,
     traj_2d:       list[np.ndarray],   # list[(iters+1)] of (B, 2)
-    auto_2d:       np.ndarray,         # (B, 2), AutoAttack final points
-    aa_success:    np.ndarray,         # (B,), successful AutoAttack endpoints
+    auto_2d:       np.ndarray | None,  # (B, 2), AutoAttack final points
+    aa_success:    np.ndarray | None,   # (B,), successful AutoAttack endpoints
     proto_2d:      np.ndarray,         # (n_proto, 2)
     proto_lbl:     np.ndarray,         # (n_proto,)
     y:             np.ndarray,         # (B,) class labels
@@ -394,27 +397,28 @@ def plot_trajectory_panel(
             edgecolors="black", linewidths=0.5, zorder=4,
         )
         # AutoAttack is plotted only when a successful endpoint exists.
-        if aa_success[i]:
+        if aa_success is not None and auto_2d is not None and aa_success[i]:
             ax.scatter(
                 auto_2d[i, 0], auto_2d[i, 1],
                 s=54, marker="D", facecolors="none",
                 edgecolors=color, linewidths=1.4, zorder=6,
             )
 
-    n_success = int(aa_success.sum())
-    aa_text = (
-        "AutoAttack: no successful endpoint"
-        if n_success == 0
-        else f"AutoAttack endpoints: {n_success}/{n_samples}"
-    )
-    ax.text(
-        0.02, 0.98, aa_text,
-        transform=ax.transAxes,
-        ha="left", va="top",
-        fontsize=8,
-        bbox=dict(facecolor="white", edgecolor="none", alpha=0.75, pad=2),
-        zorder=7,
-    )
+    if aa_success is not None:
+        n_success = int(aa_success.sum())
+        aa_text = (
+            "AutoAttack: no successful endpoint"
+            if n_success == 0
+            else f"AutoAttack endpoints: {n_success}/{n_samples}"
+        )
+        ax.text(
+            0.02, 0.98, aa_text,
+            transform=ax.transAxes,
+            ha="left", va="top",
+            fontsize=8,
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.75, pad=2),
+            zorder=7,
+        )
 
     # Prototypes
     for p_idx in range(len(proto_2d)):
@@ -437,10 +441,10 @@ def plot_trajectories(
     model_b_name:  str,
     traj_a:        list[np.ndarray],
     traj_b:        list[np.ndarray],
-    z_auto_a:      np.ndarray,
-    z_auto_b:      np.ndarray,
-    aa_success_a:  np.ndarray,
-    aa_success_b:  np.ndarray,
+    z_auto_a:      np.ndarray | None,
+    z_auto_b:      np.ndarray | None,
+    aa_success_a:  np.ndarray | None,
+    aa_success_b:  np.ndarray | None,
     z_clean_a:     np.ndarray,
     z_clean_b:     np.ndarray,
     proto_a:       np.ndarray,
@@ -451,6 +455,7 @@ def plot_trajectories(
     y:             np.ndarray,
     eps:           float,
     iters:         int,
+    autoattack_enabled: bool,
     auto_version:  str,
     out_dir:       str,
     use_global_pca: bool = False,
@@ -469,8 +474,8 @@ def plot_trajectories(
 
     traj_a_2d  = _proj_traj(traj_a, mean_a)
     traj_b_2d  = _proj_traj(traj_b, mean_b)
-    auto_a_2d  = _project(z_auto_a, mean_a)
-    auto_b_2d  = _project(z_auto_b, mean_b)
+    auto_a_2d  = _project(z_auto_a, mean_a) if z_auto_a is not None else None
+    auto_b_2d  = _project(z_auto_b, mean_b) if z_auto_b is not None else None
     proto_a_2d = _project(proto_a, mean_a)
     proto_b_2d = _project(proto_b, mean_b)
 
@@ -507,15 +512,19 @@ def plot_trajectories(
                    linestyle="None", label="Clean start (●)"),
         plt.Line2D([0], [0], marker="X",  color="gray", markersize=7,
                    linestyle="None", label="Adversarial end (✗)"),
-        plt.Line2D([0], [0], marker="D",  color="gray", markersize=7,
-                   markerfacecolor="none", linestyle="None",
-                   label="Successful AutoAttack endpoint (D)"),
         plt.Line2D([0], [0], marker="*",  color="gray", markersize=9,
                    linestyle="None", label="Prototype (★)"),
     ]
+    if autoattack_enabled:
+        marker_handles.insert(
+            2,
+            plt.Line2D([0], [0], marker="D", color="gray", markersize=7,
+                       markerfacecolor="none", linestyle="None",
+                       label="Successful AutoAttack endpoint (D)")
+        )
     fig.legend(
         handles=class_handles + marker_handles,
-        loc="lower center", ncol=N_CLASSES + 4,
+        loc="lower center", ncol=N_CLASSES + (4 if autoattack_enabled else 3),
         fontsize=7, bbox_to_anchor=(0.5, -0.06),
         title="Class (colour)  |  Marker legend",
     )
@@ -525,9 +534,10 @@ def plot_trajectories(
         if use_global_pca
         else "PCA fit on joint clean codes"
     )
+    auto_title = f"; AutoAttack={auto_version}" if autoattack_enabled else ""
     fig.suptitle(
         f"PGD trajectories in latent space — {label_a} vs {label_b}\n"
-        f"{pca_title}; AutoAttack={auto_version}",
+        f"{pca_title}{auto_title}",
         fontsize=11, y=1.02,
     )
     plt.tight_layout()
@@ -557,12 +567,15 @@ def _trajectory_metric_row(
     pgd_iters: int,
     z_clean: np.ndarray,
     traj: list[np.ndarray],
-    aa_success: np.ndarray,
+    aa_success: np.ndarray | None,
 ) -> dict[str, float | int | str]:
     pgd_final_shift = compute_pgd_final_shift(z_clean, traj[-1])
     path_length = compute_pgd_path_length(traj)
     path_efficiency = compute_pgd_path_efficiency(z_clean, traj[-1], traj)
-    aa_success = np.asarray(aa_success, dtype=bool)
+    if aa_success is None:
+        aa_success = np.asarray([], dtype=bool)
+    else:
+        aa_success = np.asarray(aa_success, dtype=bool)
 
     pgd_final_mean, pgd_final_std = _mean_std(pgd_final_shift)
     path_mean, path_std = _mean_std(path_length)
@@ -593,8 +606,8 @@ def save_trajectory_metrics_csv(
     z_clean_b: np.ndarray,
     traj_a: list[np.ndarray],
     traj_b: list[np.ndarray],
-    aa_success_a: np.ndarray,
-    aa_success_b: np.ndarray,
+    aa_success_a: np.ndarray | None,
+    aa_success_b: np.ndarray | None,
 ) -> str:
     """Save PGD latent trajectory metrics plus AutoAttack endpoint metadata."""
     rows = [
@@ -652,6 +665,8 @@ def main() -> None:
     parser.add_argument("--pgd_iters", type=int,   default=PGD_ITERS)
     parser.add_argument("--autoattack_version", type=str, default="standard",
                         help="AutoAttack version used for endpoint validation.")
+    parser.add_argument("--autoattack", action="store_true",
+                        help="Run AutoAttack endpoint validation.")
     parser.add_argument("--pca_path",  type=str,   default=None,
                         help="Optional global PCA .pkl from ch6_pca_training.py.")
     parser.add_argument("--seed",      type=int,   default=DEFAULT_SEED)
@@ -733,31 +748,38 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 6. Run AutoAttack successful endpoint validation for the same samples
+    # 6. Optional AutoAttack successful endpoint validation
     # ------------------------------------------------------------------
-    print(
-        f"Running AutoAttack ({args.autoattack_version}, eps={args.eps}) "
-        f"on {args.model_a} ..."
-    )
-    _, z_auto_a, aa_success_a = autoattack_reference_points(
-        model=model_a,
-        x=x_sub,
-        y=y_sub,
-        eps=args.eps,
-        version=args.autoattack_version,
-    )
+    if args.autoattack:
+        print(
+            f"Running AutoAttack ({args.autoattack_version}, eps={args.eps}) "
+            f"on {args.model_a} ..."
+        )
+        _, z_auto_a, aa_success_a = autoattack_reference_points(
+            model=model_a,
+            x=x_sub,
+            y=y_sub,
+            eps=args.eps,
+            version=args.autoattack_version,
+        )
 
-    print(
-        f"Running AutoAttack ({args.autoattack_version}, eps={args.eps}) "
-        f"on {args.model_b} ..."
-    )
-    _, z_auto_b, aa_success_b = autoattack_reference_points(
-        model=model_b,
-        x=x_sub,
-        y=y_sub,
-        eps=args.eps,
-        version=args.autoattack_version,
-    )
+        print(
+            f"Running AutoAttack ({args.autoattack_version}, eps={args.eps}) "
+            f"on {args.model_b} ..."
+        )
+        _, z_auto_b, aa_success_b = autoattack_reference_points(
+            model=model_b,
+            x=x_sub,
+            y=y_sub,
+            eps=args.eps,
+            version=args.autoattack_version,
+        )
+    else:
+        print("AutoAttack disabled; skipping endpoint validation.")
+        z_auto_a = None
+        z_auto_b = None
+        aa_success_a = None
+        aa_success_b = None
 
     # ------------------------------------------------------------------
     # 7. Plot
@@ -782,6 +804,7 @@ def main() -> None:
         y            = y_np,
         eps          = args.eps,
         iters        = args.pgd_iters,
+        autoattack_enabled = args.autoattack,
         auto_version = args.autoattack_version,
         out_dir      = out_dir,
         use_global_pca = use_global_pca,
