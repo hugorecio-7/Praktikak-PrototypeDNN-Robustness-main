@@ -77,7 +77,7 @@ from metric_calculators import (
     calc_R_sigma,
     calc_R_concept,
     calc_R_param,
-    calc_artificial_prototype_match_suppression,
+    calc_corrected_prototype_match_diagnostics,
     compute_empirical_robustness_interval,
     compute_icr,
     compute_tau_param,
@@ -135,8 +135,8 @@ def _extract_shield_internals(model: nn.Module, x: torch.Tensor) -> dict:
 
         d_final = d_latent + gamma * (1 - SSIM(x, Dec(p_j))) ** power
 
-    d_proto_latent is kept separately so suppression/harm diagnostics can compare
-    the original latent distance against the risk-aware distance.
+    d_proto_latent is kept separately so CMR/harm diagnostics can compare the
+    original latent distance against the risk-aware distance.
     """
     base = model.base_model
     encoder_out = base.encoder(x)
@@ -178,7 +178,7 @@ def _append_shield_match_metrics(
     labels: torch.Tensor,
     proto_labels: torch.Tensor,
 ) -> None:
-    outputs = calc_artificial_prototype_match_suppression(
+    outputs = calc_corrected_prototype_match_diagnostics(
         internals["d_proto_latent"],
         internals["d_proto_final"],
         labels,
@@ -187,8 +187,11 @@ def _append_shield_match_metrics(
     store["false_match_mu"][eps_idx].append(
         _tensor_to_numpy(outputs["false_match_mu"], dtype=np.float32)
     )
-    store["suppressed_match"][eps_idx].append(
-        _tensor_to_numpy(outputs["suppressed_match"], dtype=np.float32)
+    store["latent_correct_match"][eps_idx].append(
+        _tensor_to_numpy(outputs["latent_correct_match"], dtype=np.float32)
+    )
+    store["corrected_match"][eps_idx].append(
+        _tensor_to_numpy(outputs["corrected_match"], dtype=np.float32)
     )
     store["risk_harm_match"][eps_idx].append(
         _tensor_to_numpy(outputs["risk_harm_match"], dtype=np.float32)
@@ -196,48 +199,64 @@ def _append_shield_match_metrics(
 
 
 def _shield_metric_summary(M: dict[str, np.ndarray]) -> dict | None:
-    required = {"false_match_mu", "suppressed_match", "risk_harm_match"}
+    required = {
+        "false_match_mu",
+        "latent_correct_match",
+        "corrected_match",
+        "risk_harm_match",
+    }
     if not required.issubset(M):
         return None
 
     false_match = M["false_match_mu"].astype(bool)
-    suppressed = M["suppressed_match"].astype(bool)
+    latent_correct = M["latent_correct_match"].astype(bool)
+    corrected = M["corrected_match"].astype(bool)
     risk_harm = M["risk_harm_match"].astype(bool)
-    n_samples = int(false_match.shape[0])
 
-    suppressed_curve = []
+    cmr_curve = []
     harm_curve = []
+    total_counts = []
     false_counts = []
-    suppressed_counts = []
+    corrected_counts = []
+    latent_correct_counts = []
     harm_counts = []
 
     for eps_idx in range(false_match.shape[1]):
+        total_count = int(false_match.shape[0])
         false_count = int(false_match[:, eps_idx].sum())
-        suppressed_count = int(suppressed[:, eps_idx].sum())
+        corrected_count = int(corrected[:, eps_idx].sum())
+        latent_correct_count = int(latent_correct[:, eps_idx].sum())
         harm_count = int(risk_harm[:, eps_idx].sum())
+        total_counts.append(total_count)
         false_counts.append(false_count)
-        suppressed_counts.append(suppressed_count)
+        corrected_counts.append(corrected_count)
+        latent_correct_counts.append(latent_correct_count)
         harm_counts.append(harm_count)
-        suppressed_curve.append(
-            float((suppressed_count / false_count) * 100.0)
+        cmr_curve.append(
+            float((corrected_count / false_count) * 100.0)
             if false_count > 0
             else 0.0
         )
         harm_curve.append(
-            float((harm_count / n_samples) * 100.0)
-            if n_samples > 0
-            else float("nan")
+            float((harm_count / total_count) * 100.0)
+            if total_count > 0
+            else 0.0
         )
 
     return {
-        "suppressed_matches": suppressed_curve,
+        "cmr": cmr_curve,
         "harm_rate": harm_curve,
+        "total_count": total_counts,
+        "latent_wrong_count": false_counts,
         "false_match_mu_count": false_counts,
-        "suppressed_match_count": suppressed_counts,
+        "corrected_count": corrected_counts,
+        "corrected_match_count": corrected_counts,
+        "latent_correct_count": latent_correct_counts,
+        "damaged_count": harm_counts,
         "risk_harm_match_count": harm_counts,
         "definition": (
-            "suppressed_matches is 100 * suppressed_match / false_match_mu per "
-            "epsilon; harm_rate is 100 * risk_harm_match / N per epsilon."
+            "cmr is 100 * corrected_match / false_match_mu per epsilon; "
+            "harm_rate is 100 * risk_harm_match / total_count per epsilon."
         ),
     }
 
@@ -261,7 +280,8 @@ def _init_metric_store(dim: int, is_b30: bool, is_protovae: bool, is_senn: bool,
     if is_shield:
         store["m_proto_latent"] = [[] for _ in range(dim)]
         store["false_match_mu"] = [[] for _ in range(dim)]
-        store["suppressed_match"] = [[] for _ in range(dim)]
+        store["latent_correct_match"] = [[] for _ in range(dim)]
+        store["corrected_match"] = [[] for _ in range(dim)]
         store["risk_harm_match"] = [[] for _ in range(dim)]
 
     if is_protovae:
@@ -1122,8 +1142,8 @@ def adversarial_metrics_eps_collect(
                 ),
                 # ---- Shield diagnostics ---------------------------------
                 "shield": shield_config,
-                "suppressed_matches": (
-                    None if shield_summary is None else shield_summary["suppressed_matches"]
+                "cmr": (
+                    None if shield_summary is None else shield_summary["cmr"]
                 ),
                 "harm_rate": (
                     None if shield_summary is None else shield_summary["harm_rate"]

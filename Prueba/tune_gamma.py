@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from data_loader import get_test_loader
-from metric_calculators import calc_artificial_prototype_match_suppression
+from metric_calculators import calc_corrected_prototype_match_diagnostics
 from modules import CAEModel_Balanced
 from reconstruction_risk_wrapper import ReconstructionRiskWrapper
 
@@ -280,25 +280,28 @@ def evaluate_batch(
         predictions = logits.argmax(dim=1)
         accuracy = predictions.eq(labels).float().mean().item()
 
-        metric_outputs = calc_artificial_prototype_match_suppression(
+        metric_outputs = calc_corrected_prototype_match_diagnostics(
             wrapper.last_d_latente,
             wrapper.last_d_final,
             labels,
             proto_labels,
         )
 
-        # Calcular el APMSR verdadero (supresiones sobre el total de fallos latentes)
         false_matches = metric_outputs["false_match_mu"].sum().item()
-        suppressions = metric_outputs["suppressed_match"].sum().item()
+        corrected_matches = metric_outputs["corrected_match"].sum().item()
         harm_matches = metric_outputs["risk_harm_match"].sum().item()
 
         if false_matches > 0:
-            apm_sr = (suppressions / false_matches) * 100.0
+            cmr = (corrected_matches / false_matches) * 100.0
         else:
-            apm_sr = 0.0
-        harm_rate = (harm_matches / labels.size(0)) * 100.0
+            cmr = 0.0
+        harm_rate = (
+            (harm_matches / labels.size(0)) * 100.0
+            if labels.size(0) > 0
+            else 0.0
+        )
 
-    return accuracy, apm_sr, harm_rate
+    return accuracy, cmr, harm_rate
 
 
 def main() -> None:
@@ -384,7 +387,7 @@ def main() -> None:
                         random_start=not args.no_random_start,
                         grey=args.grey,
                     )
-                    accuracy, suppressed_matches, harm_rate = evaluate_batch(
+                    accuracy, cmr, harm_rate = evaluate_batch(
                         wrapper=wrapper,
                         images=eval_images,
                         labels=labels,
@@ -397,7 +400,7 @@ def main() -> None:
                         "gamma": gamma,
                         "epsilon": epsilon,
                         "accuracy": accuracy,
-                        "suppressed_matches": suppressed_matches,
+                        "cmr": cmr,
                         "harm_rate": harm_rate,
                     }
                     rows.append(row)
@@ -405,7 +408,7 @@ def main() -> None:
                         f"Model={model_name} | Power={power} | "
                         f"Gamma={gamma:.2f} | "
                         f"Epsilon={epsilon:.3f} | Accuracy={accuracy:.4f} | "
-                        f"suppressed_matches={suppressed_matches:.2f}% | "
+                        f"cmr={cmr:.2f}% | "
                         f"harm_rate={harm_rate:.2f}%"
                     )
 
@@ -424,7 +427,7 @@ def main() -> None:
                     "gamma",
                     "epsilon",
                     "accuracy",
-                    "suppressed_matches",
+                    "cmr",
                     "harm_rate",
                 ],
             )

@@ -380,13 +380,13 @@ def calc_artificial_prototype_match_suppression(
     eps: float = 1e-8,
 ) -> dict[str, torch.Tensor]:
     """
-    Diagnose artificial prototype-match suppression by risk-aware distances.
+    Diagnose corrected and damaged prototype matches by risk-aware distances.
 
     A false artificial match under ``mu`` occurs when the nearest wrong-class
     prototype under ``mu`` is closer than the nearest correct-class prototype.
-    It is suppressed if the risk-aware distances reverse that ordering. The
-    harm diagnostic marks the opposite case: ``mu`` preferred the correct
-    prototype, but the used distance prefers the wrong prototype.
+    It is corrected if the risk-aware distances reverse that ordering. The harm
+    diagnostic marks the opposite case: ``mu`` preferred the correct prototype,
+    but the used distance prefers the wrong prototype.
     """
     del eps  # kept for signature symmetry and future numerical variants
     if mu_distances.shape != used_distances.shape:
@@ -407,18 +407,39 @@ def calc_artificial_prototype_match_suppression(
     )
 
     false_match_mu = wrong_mu < correct_mu
-    suppressed_match = false_match_mu & (correct_used < wrong_used)
-    risk_harm_match = (correct_mu < wrong_mu) & (wrong_used < correct_used)
+    latent_correct_match = correct_mu < wrong_mu
+    corrected_match = false_match_mu & (correct_used < wrong_used)
+    risk_harm_match = latent_correct_match & (wrong_used < correct_used)
 
     return {
         "false_match_mu": false_match_mu,
-        "suppressed_match": suppressed_match,
+        "latent_correct_match": latent_correct_match,
+        "corrected_match": corrected_match,
+        # Backward-compatible alias for older DFS/analysis code.
+        "suppressed_match": corrected_match,
         "risk_harm_match": risk_harm_match,
         "correct_mu": correct_mu,
         "wrong_mu": wrong_mu,
         "correct_used": correct_used,
         "wrong_used": wrong_used,
     }
+
+
+def calc_corrected_prototype_match_diagnostics(
+    mu_distances: torch.Tensor,
+    used_distances: torch.Tensor,
+    y: torch.Tensor,
+    proto_labels: torch.Tensor | list[int] | np.ndarray,
+    eps: float = 1e-8,
+) -> dict[str, torch.Tensor]:
+    """Return corrected-match and harm diagnostics for CMR/Harm Rate."""
+    return calc_artificial_prototype_match_suppression(
+        mu_distances=mu_distances,
+        used_distances=used_distances,
+        y=y,
+        proto_labels=proto_labels,
+        eps=eps,
+    )
 
 
 def compute_empirical_robustness_interval(
